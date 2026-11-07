@@ -1,1 +1,9 @@
 .DS_Store
+
+# signal bot
+signal-bot/config.json
+signal-bot/state.json
+signal-bot/state.json.tmp
+.env
+__pycache__/
+*.pyc

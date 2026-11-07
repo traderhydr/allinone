@@ -52,3 +52,7 @@ Not carried over: multi-timeframe FVG, harmonic / zigzag tools, and the per-asse
 ### Status
 
 Not compiled or run in TradingView, and not backtested. Expect to fix small compile errors on first paste. Not financial advice.
+
+## Telegram signal bot
+
+`signal-bot/` is a small Python program that fetches candles from Binance and BloFin, runs the Algo Signals engine and posts signals, targets and stops to a Telegram channel. See `signal-bot/README.md`.
