@@ -17,3 +17,7 @@ A single TradingView indicator (Pine Script v5) combining:
 ## Status
 
 Not yet compiled or backtested in TradingView. It is a chart-reading aid, not a tested strategy, and not financial advice.
+
+## Development
+
+Commits made in the local clone are pushed to `origin` automatically by a `post-commit` hook.
