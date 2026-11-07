@@ -18,9 +18,9 @@ A single TradingView indicator (Pine Script v5) combining:
 
 Not yet compiled or backtested in TradingView. It is a chart-reading aid, not a tested strategy, and not financial advice.
 
-## Algo Signals + Algo Structure
+## Algo Signals, Algo Structure and Algo Matrix
 
-Two companion indicators (Pine v5) that combine the strongest part of eight community scripts. They are compact rewrites, not pasted copies, and are split in two to stay inside TradingView's drawing-object and compile-size limits. Add both to the same chart.
+Three companion indicators (Pine v5) that combine the strongest part of eight community scripts. They are compact rewrites, not pasted copies, and are split up to stay inside TradingView's drawing-object and compile-size limits. Add the first two to the price chart; `algo-matrix.pine` runs in its own pane below it.
 
 | File | Part | Taken from |
 |---|---|---|
@@ -35,8 +35,9 @@ Two companion indicators (Pine v5) that combine the strongest part of eight comm
 | | Fair value gaps, previous day / week / month high and low | Mayfair |
 | | Supply / demand zones, key swing levels | Neural Network |
 | | Volume profile with POC and value area (up / down split) | NOSTRADAMUS |
+| `algo-matrix.pine` | Matrix candle oscillator, CCI support / resistance lines, overbought / oversold dots, optional Vix Fix columns | Advanced Matrix |
 
-Not carried over: the matrix candle oscillator, multi-timeframe FVG, harmonic / zigzag tools, and the per-asset presets and webhook JSON from GG-SHOT.
+Not carried over: multi-timeframe FVG, harmonic / zigzag tools, and the per-asset presets and webhook JSON from GG-SHOT.
 
 ### Notes
 

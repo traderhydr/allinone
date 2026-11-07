@@ -1,0 +1,84 @@
+//@version=5
+indicator("Algo Matrix", overlay = false, precision = 1)
+
+// =====================================================================
+//  ALGO MATRIX  (separate pane, companion to algo-signals.pine and algo-structure.pine)
+//  Matrix candle oscillator, CCI support / resistance lines, overbought / oversold dots
+//  and optional Vix Fix columns, all from Advanced Matrix.
+//  The QQE, Vix Fix and VWAP CCI chart signals live in algo-signals.pine.
+// =====================================================================
+
+// ---------------------------------------------------------------- inputs
+gMx = "Matrix candle"
+smooth  = input.int(5, "Smoother", minval = 1, group = gMx)
+ob      = input.int(200, "Overbought", group = gMx)
+os      = input.int(-200, "Oversold", group = gMx)
+showObs = input.bool(true, "Show overbought / oversold dots", group = gMx)
+showLvl = input.bool(false, "Show overbought / oversold lines", group = gMx)
+
+gSR = "CCI support / resistance"
+showSR   = input.bool(true, "Show support / resistance lines", group = gSR)
+srPeriod = input.int(50, "Lookback", minval = 2, group = gSR)
+srPct    = input.int(100, "Percentage", minval = 1, maxval = 100, group = gSR)
+cciLen   = input.int(16, "CCI length", minval = 2, group = gSR)
+
+gVix = "Vix Fix columns"
+showVix = input.bool(false, "Show Vix Fix columns", group = gVix)
+vixPd   = input.int(22, "Lookback for highest close", minval = 2, group = gVix)
+vixBbl  = input.int(20, "Bollinger length", minval = 2, group = gVix)
+vixMult = input.float(2.0, "Bollinger deviations", minval = 1, maxval = 5, group = gVix)
+vixLb   = input.int(50, "Percentile lookback", minval = 2, group = gVix)
+vixPh   = input.float(0.85, "Highest percentile", minval = 0.5, maxval = 0.99, step = 0.01, group = gVix)
+vixScale = input.float(1.0, "Column scale (0.5 - 2)", minval = 0.5, maxval = 2, step = 0.1, group = gVix)
+
+coral = #ffa703
+lavender = color.rgb(29, 225, 255)
+amber = color.rgb(255, 170, 0)
+
+// ---------------------------------------------------------------- matrix candle
+// Weighted price, normalised, then smoothed three times; the candle spans the last two smoothings
+ys1 = (high + low + close * 2) / 4
+rk3 = ta.ema(ys1, smooth)
+rk4 = ta.stdev(ys1, smooth)
+rk5 = (ys1 - rk3) * 200 / rk4
+rk6 = ta.ema(rk5, smooth)
+mxUp = ta.ema(rk6, smooth)
+mxDn = ta.ema(mxUp, smooth)
+mxLo = math.min(mxUp, mxDn)
+mxHi = math.max(mxUp, mxDn)
+
+plotcandle(mxLo, mxHi, mxLo, mxHi, "Matrix candle", color = mxUp > mxDn ? lavender : coral, wickcolor = mxUp > mxDn ? lavender : coral, bordercolor = mxUp > mxDn ? lavender : coral)
+hline(0, "Zero", color.new(color.gray, 60), hline.style_dotted)
+
+// ---------------------------------------------------------------- CCI support / resistance
+cciV = ta.cci(close, cciLen)
+cciHi = ta.highest(cciV, srPeriod)
+cciLo = ta.lowest(cciV, srPeriod)
+cciSpan = (cciHi - cciLo) * (srPct / 100)
+resLine = cciLo + cciSpan
+supLine = cciHi - cciSpan
+plot(showSR ? resLine : na, "Resistance line", color.new(coral, 0))
+plot(showSR ? supLine : na, "Support line", lavender)
+
+// ---------------------------------------------------------------- overbought / oversold
+upShape = mxUp > ob and mxUp > mxDn ? mxUp + 20 : mxUp > ob and mxUp < mxDn ? mxDn + 20 : na
+dnShape = mxDn < os and mxUp > mxDn ? mxDn - 20 : mxDn < os and mxUp < mxDn ? mxUp - 20 : na
+plot(showObs ? upShape : na, "Overbought dot", amber, 4, plot.style_circles)
+plot(showObs ? dnShape : na, "Oversold dot", amber, 4, plot.style_circles)
+hline(showLvl ? ob : na, "Overbought level")
+hline(showLvl ? os : na, "Oversold level")
+
+// ---------------------------------------------------------------- Vix Fix columns
+vixHigh = ta.highest(close, vixPd)
+wvf = (vixHigh - low) / vixHigh * 100
+vixUpper = ta.sma(wvf, vixBbl) + vixMult * ta.stdev(wvf, vixBbl)
+vixRange = ta.highest(wvf, vixLb) * vixPh
+vixHot = wvf >= vixUpper or wvf >= vixRange
+vixFactor = vixScale * (resLine - supLine) / (2.2 * vixRange)
+plot(showVix ? wvf * -1 * vixFactor : na, "Vix Fix", vixHot ? color.lime : color.gray, 4, plot.style_columns)
+
+// ---------------------------------------------------------------- alerts
+alertcondition(ta.crossover(mxUp, mxDn), "Matrix turns up", "Algo Matrix: turns up {{ticker}}")
+alertcondition(ta.crossunder(mxUp, mxDn), "Matrix turns down", "Algo Matrix: turns down {{ticker}}")
+alertcondition(not na(upShape), "Matrix overbought", "Algo Matrix: overbought {{ticker}}")
+alertcondition(not na(dnShape), "Matrix oversold", "Algo Matrix: oversold {{ticker}}")
