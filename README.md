@@ -28,18 +28,22 @@ Two companion indicators (Pine v5) that combine the strongest part of eight comm
 | | TP1-3 / stop levels, hit tracking, stop-to-entry option | 2 UT Bot Strategy |
 | | Entry / SL / TP lines and labels, dashboard, alerts | ELITE TP |
 | | HILO moving-average channel, bar colours | Price Action Explorer |
+| | Regular / hidden divergence on RSI or WaveTrend | Neural Network |
 | | Today's, tomorrow's and weekly CPR, R1-R3 / S1-S3 | Brahmastra |
 | `algo-structure.pine` | Swing and internal BOS / CHoCH, order blocks, equal highs / lows, sweeps, premium / discount | Price Action Concepts |
 | | Fair value gaps, previous day / week / month high and low | Mayfair |
 | | Supply / demand zones, key swing levels | Neural Network |
+| | Volume profile with POC and value area (up / down split) | NOSTRADAMUS |
 
-Not carried over: volume profile, divergence / oscillators, multi-timeframe FVG, harmonic / zigzag tools, and the per-asset presets and webhook JSON from GG-SHOT.
+Not carried over: other oscillators (QQE, Vix Fix, VWAP-CCI), multi-timeframe FVG, harmonic / zigzag tools, and the per-asset presets and webhook JSON from GG-SHOT.
 
 ### Notes
 
 - Signal sensitivity follows Infinity Algo exactly: the supertrend band is `sensitivity x 2 x (high - low)`, so the default of 6 is very wide. Lower it for more signals.
 - Trade levels default to ATR multiples (1 / 2 / 3, stop 1.5). Switch **Level mode** to Percent to use fixed percentages instead.
 - When a bar touches both the stop and a target, the stop is counted first.
+- The volume profile covers the last N bars and is redrawn on the latest bar. Its value area defaults to 70% (NOSTRADAMUS used 100%, which highlights every row).
+- Divergence compares price pivots with oscillator pivots, so a label appears `Pivot lookback right` bars after the pivot (it is not repainted, just late).
 - The dashboard's TP1 rate is trades that reached TP1 divided by closed trades. It is a chart-reading aid, not a backtest.
 
 ### Status

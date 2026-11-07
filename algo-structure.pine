@@ -44,6 +44,18 @@ sdLen   = input.int(10, "Swing length", minval = 2, group = gSD)
 sdMax   = input.int(5, "Zones kept per side", minval = 1, maxval = 20, group = gSD)
 sdWidth = input.float(0.5, "Zone height (x ATR50)", minval = 0.1, step = 0.1, group = gSD)
 
+gVP = "Volume profile (NOSTRADAMUS)"
+showVP   = input.bool(true, "Volume profile", group = gVP)
+vpBars   = input.int(150, "Number of bars", minval = 10, maxval = 500, group = gVP)
+vpRows   = input.int(24, "Row size", minval = 5, maxval = 100, group = gVP)
+vpArea   = input.float(70.0, "Value area volume %", minval = 1, maxval = 100, group = gVP)
+vpPocC   = input.color(color.new(color.white, 40), "POC colour", group = gVP)
+vpUpC    = input.color(color.new(color.blue, 75), "Up volume", group = gVP)
+vpDnC    = input.color(color.new(color.orange, 75), "Down volume", group = gVP)
+vpVaUpC  = input.color(color.new(color.blue, 30), "Value area up", group = gVP)
+vpVaDnC  = input.color(color.new(color.orange, 30), "Value area down", group = gVP)
+vpPocLbl = input.bool(false, "Show POC label", group = gVP)
+
 gMTF = "Previous period high / low"
 showD = input.bool(true, "Day", group = gMTF)
 showW = input.bool(true, "Week", group = gMTF)
@@ -269,6 +281,99 @@ if array.size(demandBoxes) > 0
         if close < box.get_bottom(b)
             box.delete(b)
             array.remove(demandBoxes, i)
+
+// ---------------------------------------------------------------- volume profile
+// Each candle's volume is split over body and wicks (wicks weighted x2), spread
+// across the rows its parts overlap, and kept separate for up and down candles.
+float vpTop = ta.highest(high, vpBars)
+float vpBot = ta.lowest(low, vpBars)
+
+// share of `vol` that falls in the overlap of the row [y11, y12] and the segment [y21, y22]
+rowVol(float y11, float y12, float y21, float y22, float height, float vol) =>
+    nz(math.max(math.min(math.max(y11, y12), math.max(y21, y22)) - math.max(math.min(y11, y12), math.min(y21, y22)), 0) * vol / height)
+
+var box[] vpBoxes = array.new_box()
+var line vpPoc = na
+var label vpLbl = na
+
+if barstate.islast and showVP and vpTop > vpBot
+    for vb in vpBoxes
+        box.delete(vb)
+    array.clear(vpBoxes)
+    line.delete(vpPoc)
+    label.delete(vpLbl)
+
+    int nb = math.min(vpBars, bar_index + 1)
+    float vpStep = (vpTop - vpBot) / vpRows
+    float vpGap = (vpTop - vpBot) / 500
+    levels = array.new_float(vpRows + 1)
+    for x = 0 to vpRows
+        array.set(levels, x, vpBot + vpStep * x)
+
+    // volumes[0 .. rows-1] = up candles, volumes[rows .. 2*rows-1] = down candles
+    volumes = array.new_float(vpRows * 2, 0.0)
+    for k = 0 to nb - 1
+        float bodyTop = math.max(close[k], open[k])
+        float bodyBot = math.min(close[k], open[k])
+        bool isUp = close[k] >= open[k]
+        float topWick = high[k] - bodyTop
+        float botWick = bodyBot - low[k]
+        float body = bodyTop - bodyBot
+        float den = 2 * topWick + 2 * botWick + body
+        float bodyShare = den > 0 ? body * volume[k] / den : 0.0
+        float topShare = den > 0 ? 2 * topWick * volume[k] / den : 0.0
+        float botShare = den > 0 ? 2 * botWick * volume[k] / den : 0.0
+        for x = 0 to vpRows - 1
+            float rLo = array.get(levels, x)
+            float rHi = array.get(levels, x + 1)
+            float vBody = rowVol(rLo, rHi, bodyBot, bodyTop, body, bodyShare)
+            float vWicks = rowVol(rLo, rHi, bodyTop, high[k], topWick, topShare) / 2 + rowVol(rLo, rHi, bodyBot, low[k], botWick, botShare) / 2
+            array.set(volumes, x, array.get(volumes, x) + (isUp ? vBody : 0.0) + vWicks)
+            array.set(volumes, x + vpRows, array.get(volumes, x + vpRows) + (isUp ? 0.0 : vBody) + vWicks)
+
+    totals = array.new_float(vpRows, 0.0)
+    for x = 0 to vpRows - 1
+        array.set(totals, x, array.get(volumes, x) + array.get(volumes, x + vpRows))
+    float maxVol = array.max(totals)
+
+    if maxVol > 0
+        int poc = array.indexof(totals, maxVol)
+
+        // value area grows from the POC towards whichever neighbour row has more volume
+        float vaTarget = array.sum(totals) * vpArea / 100
+        float vaTotal = array.get(totals, poc)
+        int vaUp = poc
+        int vaDn = poc
+        for x = 0 to vpRows - 1
+            if vaTotal >= vaTarget
+                break
+            float upV = vaUp < vpRows - 1 ? array.get(totals, vaUp + 1) : 0.0
+            float dnV = vaDn > 0 ? array.get(totals, vaDn - 1) : 0.0
+            if upV == 0 and dnV == 0
+                break
+            if upV >= dnV
+                vaTotal += upV
+                vaUp += 1
+            else
+                vaTotal += dnV
+                vaDn -= 1
+
+        // rows are at most a third of the profile width
+        float vpScale = nb / (3 * maxVol)
+        int x0 = bar_index - nb + 1
+        for x = 0 to vpRows - 1
+            int xUp = x0 + math.round(array.get(volumes, x) * vpScale)
+            int xDn = xUp + math.round(array.get(volumes, x + vpRows) * vpScale)
+            bool inVA = x >= vaDn and x <= vaUp
+            float rowTop = array.get(levels, x + 1) - vpGap
+            float rowBot = array.get(levels, x) + vpGap
+            array.push(vpBoxes, box.new(left = x0, top = rowTop, right = xUp, bottom = rowBot, border_color = na, bgcolor = inVA ? vpVaUpC : vpUpC))
+            array.push(vpBoxes, box.new(left = xUp, top = rowTop, right = xDn, bottom = rowBot, border_color = na, bgcolor = inVA ? vpVaDnC : vpDnC))
+
+        float pocLevel = (array.get(levels, poc) + array.get(levels, poc + 1)) / 2
+        vpPoc := line.new(x0, pocLevel, bar_index, pocLevel, extend = extend.right, color = vpPocC, width = 2)
+        if vpPocLbl
+            vpLbl := label.new(bar_index + 15, pocLevel, "POC " + str.tostring(pocLevel, format.mintick), style = close >= pocLevel ? label.style_label_up : label.style_label_down)
 
 // ---------------------------------------------------------------- previous period high / low
 [pdH, pdL] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)

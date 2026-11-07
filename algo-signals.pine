@@ -38,6 +38,16 @@ chLen   = input.int(20, "Length", minval = 2, group = gCh)
 chBars  = input.bool(true, "Colour bars by channel", group = gCh)
 showEma = input.bool(true, "EMA 200", group = gCh)
 
+gDiv = "Divergence (Neural Network)"
+showDiv    = input.bool(true, "Show divergence labels", group = gDiv)
+divOsc     = input.string("RSI", "Oscillator", options = ["RSI", "WaveTrend"], group = gDiv)
+divRsiLen  = input.int(14, "RSI length", minval = 2, group = gDiv)
+divL       = input.int(5, "Pivot lookback left", minval = 1, group = gDiv)
+divR       = input.int(5, "Pivot lookback right", minval = 1, group = gDiv)
+divMax     = input.int(60, "Max bars between pivots", minval = 5, group = gDiv)
+divMin     = input.int(5, "Min bars between pivots", minval = 1, group = gDiv)
+showHidden = input.bool(false, "Include hidden divergence", group = gDiv)
+
 gCPR = "CPR (Brahmastra)"
 showCPR  = input.bool(true, "Today's CPR", group = gCPR)
 showCPRL = input.bool(false, "R1-R3 / S1-S3", group = gCPR)
@@ -114,6 +124,51 @@ barcolor(chBars ? (close > chU and close > chL ? color.lime : close < chU and cl
 
 ema200 = ta.ema(close, 200)
 plot(showEma ? ema200 : na, "EMA 200", color.new(color.orange, 0), 2)
+
+// ---------------------------------------------------------------- divergence
+// Pivot-based regular / hidden divergence between price and an oscillator
+rsiV = ta.rsi(close, divRsiLen)
+wtEsa = ta.ema(hlc3, 10)
+wtDev = ta.ema(math.abs(hlc3 - wtEsa), 10)
+wtCi = (hlc3 - wtEsa) / (0.015 * wtDev)
+wt1 = ta.ema(wtCi, 21)
+osc = divOsc == "RSI" ? rsiV : wt1
+
+plFound = not na(ta.pivotlow(osc, divL, divR))
+phFound = not na(ta.pivothigh(osc, divL, divR))
+barsPL = ta.barssince(plFound[1])
+barsPH = ta.barssince(phFound[1])
+inRangeL = divMin <= barsPL and barsPL <= divMax
+inRangeH = divMin <= barsPH and barsPH <= divMax
+
+prevOscL = ta.valuewhen(plFound, osc[divR], 1)
+prevLowL = ta.valuewhen(plFound, low[divR], 1)
+prevOscH = ta.valuewhen(phFound, osc[divR], 1)
+prevHighH = ta.valuewhen(phFound, high[divR], 1)
+
+bullDiv = plFound and inRangeL and osc[divR] > prevOscL and low[divR] < prevLowL
+hidBull = plFound and inRangeL and osc[divR] < prevOscL and low[divR] > prevLowL
+bearDiv = phFound and inRangeH and osc[divR] < prevOscH and high[divR] > prevHighH
+hidBear = phFound and inRangeH and osc[divR] > prevOscH and high[divR] < prevHighH
+
+var string lastDiv = "-"
+if bullDiv
+    lastDiv := "Bull"
+if bearDiv
+    lastDiv := "Bear"
+if showHidden and hidBull
+    lastDiv := "Hidden bull"
+if showHidden and hidBear
+    lastDiv := "Hidden bear"
+
+if showDiv and bullDiv
+    label.new(bar_index - divR, low[divR], "Bull div", style = label.style_label_up, color = color.new(color.lime, 20), textcolor = color.black, size = size.tiny)
+if showDiv and bearDiv
+    label.new(bar_index - divR, high[divR], "Bear div", style = label.style_label_down, color = color.new(color.red, 20), textcolor = color.white, size = size.tiny)
+if showDiv and showHidden and hidBull
+    label.new(bar_index - divR, low[divR], "H bull", style = label.style_label_up, color = color.new(color.teal, 20), textcolor = color.white, size = size.tiny)
+if showDiv and showHidden and hidBear
+    label.new(bar_index - divR, high[divR], "H bear", style = label.style_label_down, color = color.new(color.orange, 20), textcolor = color.black, size = size.tiny)
 
 // ---------------------------------------------------------------- trade levels
 var int tDir = 0
@@ -273,7 +328,7 @@ dashPosition(string s) =>
     s == "Top Right" ? position.top_right : s == "Middle Right" ? position.middle_right : s == "Bottom Right" ? position.bottom_right : s == "Top Left" ? position.top_left : s == "Middle Left" ? position.middle_left : position.bottom_left
 
 dashTextSize = dashSize == "Tiny" ? size.tiny : dashSize == "Small" ? size.small : size.normal
-var table dash = table.new(dashPosition(dashPos), 2, 9, bgcolor = color.new(color.black, 15), frame_color = color.new(color.gray, 40), frame_width = 1, border_color = color.new(color.gray, 60), border_width = 1)
+var table dash = table.new(dashPosition(dashPos), 2, 10, bgcolor = color.new(color.black, 15), frame_color = color.new(color.gray, 40), frame_width = 1, border_color = color.new(color.gray, 60), border_width = 1)
 
 dashRow(int r, string k, string v, color c) =>
     table.cell(dash, 0, r, k, text_color = color.white, text_halign = text.align_left, text_size = dashTextSize)
@@ -293,10 +348,13 @@ if barstate.islast and showDash
     dashRow(6, "TP1 / TP2 / TP3", str.tostring(nTP1) + " / " + str.tostring(nTP2) + " / " + str.tostring(nTP3), color.lime)
     dashRow(7, "Stops", str.tostring(nSL), color.red)
     dashRow(8, "TP1 rate", winRate, color.white)
+    dashRow(9, "Last divergence", lastDiv, str.contains(lastDiv, "ull") ? color.lime : str.contains(lastDiv, "ear") ? color.red : color.gray)
 
 // ---------------------------------------------------------------- alerts
 alertcondition(buy, "Buy signal", "Algo Signals: BUY {{ticker}} @ {{close}}")
 alertcondition(sell, "Sell signal", "Algo Signals: SELL {{ticker}} @ {{close}}")
+alertcondition(bullDiv, "Bullish divergence", "Algo Signals: bullish divergence {{ticker}}")
+alertcondition(bearDiv, "Bearish divergence", "Algo Signals: bearish divergence {{ticker}}")
 alertcondition(evTP1, "TP1 hit", "Algo Signals: TP1 hit {{ticker}}")
 alertcondition(evTP2, "TP2 hit", "Algo Signals: TP2 hit {{ticker}}")
 alertcondition(evTP3, "TP3 hit", "Algo Signals: TP3 hit {{ticker}}")
