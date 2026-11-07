@@ -63,6 +63,11 @@ vixMult  = input.float(2.0, "Bollinger deviations", minval = 1, maxval = 5, grou
 vixLb    = input.int(50, "Percentile lookback", minval = 2, group = gVix)
 vixPh    = input.float(0.85, "Highest percentile (0.90 = 90%)", minval = 0.5, maxval = 0.99, step = 0.01, group = gVix)
 
+gVCCI = "VWAP CCI (Advanced Matrix)"
+showVCCI = input.bool(true, "Show VWAP CCI signals", group = gVCCI)
+vcciLen  = input.int(14, "Length", minval = 2, group = gVCCI)
+vcciLvl  = input.int(200, "Signal level (+/-)", minval = 50, group = gVCCI)
+
 gCPR = "CPR (Brahmastra)"
 showCPR  = input.bool(true, "Today's CPR", group = gCPR)
 showCPRL = input.bool(false, "R1-R3 / S1-S3", group = gCPR)
@@ -236,6 +241,21 @@ plotshape(showVix and vixLong1, "Vix Fix long 1", shape.triangleup, location.bot
 plotshape(showVix and vixLong2, "Vix Fix long 2", shape.triangleup, location.bottom, color.new(color.teal, 0), size = size.tiny)
 bgcolor(showVix and vixBg and (vixLong1 or vixLong2) ? color.new(#15FF00, 85) : na, title = "Vix Fix background")
 
+// ---------------------------------------------------------------- VWAP CCI
+// CCI of the session VWAP against its ALMA: long when it recovers from deep oversold, short when it falls from overbought
+vcci = (ta.vwap - ta.alma(ta.vwap, vcciLen, 0.85, 6.0)) / (0.015 * ta.dev(ta.vwap, vcciLen))
+vcciLong = ta.crossover(vcci, -vcciLvl)
+vcciShort = ta.crossunder(vcci, vcciLvl)
+
+var string lastVcci = "-"
+if vcciLong
+    lastVcci := "Long"
+if vcciShort
+    lastVcci := "Short"
+
+plotshape(showVCCI and vcciLong, "VWAP CCI long", shape.labelup, location.bottom, color.new(color.lime, 25), text = "VCCI", textcolor = color.black, size = size.tiny)
+plotshape(showVCCI and vcciShort, "VWAP CCI short", shape.labeldown, location.top, color.new(color.fuchsia, 25), text = "VCCI", textcolor = color.white, size = size.tiny)
+
 // ---------------------------------------------------------------- trade levels
 var int tDir = 0
 var bool tOpen = false
@@ -394,7 +414,7 @@ dashPosition(string s) =>
     s == "Top Right" ? position.top_right : s == "Middle Right" ? position.middle_right : s == "Bottom Right" ? position.bottom_right : s == "Top Left" ? position.top_left : s == "Middle Left" ? position.middle_left : position.bottom_left
 
 dashTextSize = dashSize == "Tiny" ? size.tiny : dashSize == "Small" ? size.small : size.normal
-var table dash = table.new(dashPosition(dashPos), 2, 12, bgcolor = color.new(color.black, 15), frame_color = color.new(color.gray, 40), frame_width = 1, border_color = color.new(color.gray, 60), border_width = 1)
+var table dash = table.new(dashPosition(dashPos), 2, 13, bgcolor = color.new(color.black, 15), frame_color = color.new(color.gray, 40), frame_width = 1, border_color = color.new(color.gray, 60), border_width = 1)
 
 dashRow(int r, string k, string v, color c) =>
     table.cell(dash, 0, r, k, text_color = color.white, text_halign = text.align_left, text_size = dashTextSize)
@@ -417,6 +437,7 @@ if barstate.islast and showDash
     dashRow(9, "Last divergence", lastDiv, str.contains(lastDiv, "ull") ? color.lime : str.contains(lastDiv, "ear") ? color.red : color.gray)
     dashRow(10, "QQE", qqeTrend == 1 ? "Bullish" : "Bearish", qqeTrend == 1 ? color.lime : color.red)
     dashRow(11, "Last Vix Fix", lastVix, lastVix == "-" ? color.gray : color.lime)
+    dashRow(12, "Last VWAP CCI", lastVcci, lastVcci == "Long" ? color.lime : lastVcci == "Short" ? color.red : color.gray)
 
 // ---------------------------------------------------------------- alerts
 alertcondition(buy, "Buy signal", "Algo Signals: BUY {{ticker}} @ {{close}}")
@@ -424,6 +445,8 @@ alertcondition(sell, "Sell signal", "Algo Signals: SELL {{ticker}} @ {{close}}")
 alertcondition(qqeLong, "QQE long", "Algo Signals: QQE long {{ticker}}")
 alertcondition(qqeShort, "QQE short", "Algo Signals: QQE short {{ticker}}")
 alertcondition(vixLong1 or vixLong2, "Vix Fix long", "Algo Signals: Vix Fix bottom {{ticker}}")
+alertcondition(vcciLong, "VWAP CCI long", "Algo Signals: VWAP CCI long {{ticker}}")
+alertcondition(vcciShort, "VWAP CCI short", "Algo Signals: VWAP CCI short {{ticker}}")
 alertcondition(bullDiv, "Bullish divergence", "Algo Signals: bullish divergence {{ticker}}")
 alertcondition(bearDiv, "Bearish divergence", "Algo Signals: bearish divergence {{ticker}}")
 alertcondition(evTP1, "TP1 hit", "Algo Signals: TP1 hit {{ticker}}")
