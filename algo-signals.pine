@@ -48,6 +48,21 @@ divMax     = input.int(60, "Max bars between pivots", minval = 5, group = gDiv)
 divMin     = input.int(5, "Min bars between pivots", minval = 1, group = gDiv)
 showHidden = input.bool(false, "Include hidden divergence", group = gDiv)
 
+gQQE = "QQE signals (Advanced Matrix)"
+showQQE   = input.bool(true, "Show QQE signals", group = gQQE)
+qqeRsiLen = input.int(14, "RSI length", minval = 2, group = gQQE)
+qqeSmooth = input.int(5, "RSI smoothing", minval = 1, group = gQQE)
+qqeFactor = input.float(4.238, "Fast QQE factor", minval = 0.1, step = 0.1, group = gQQE)
+
+gVix = "Vix Fix (Advanced Matrix)"
+showVix  = input.bool(true, "Show Vix Fix bottoms", group = gVix)
+vixBg    = input.bool(false, "Highlight background", group = gVix)
+vixPd    = input.int(22, "Lookback for highest close", minval = 2, group = gVix)
+vixBbl   = input.int(20, "Bollinger length", minval = 2, group = gVix)
+vixMult  = input.float(2.0, "Bollinger deviations", minval = 1, maxval = 5, group = gVix)
+vixLb    = input.int(50, "Percentile lookback", minval = 2, group = gVix)
+vixPh    = input.float(0.85, "Highest percentile (0.90 = 90%)", minval = 0.5, maxval = 0.99, step = 0.01, group = gVix)
+
 gCPR = "CPR (Brahmastra)"
 showCPR  = input.bool(true, "Today's CPR", group = gCPR)
 showCPRL = input.bool(false, "R1-R3 / S1-S3", group = gCPR)
@@ -169,6 +184,57 @@ if showDiv and showHidden and hidBull
     label.new(bar_index - divR, low[divR], "H bull", style = label.style_label_up, color = color.new(color.teal, 20), textcolor = color.white, size = size.tiny)
 if showDiv and showHidden and hidBear
     label.new(bar_index - divR, high[divR], "H bear", style = label.style_label_down, color = color.new(color.orange, 20), textcolor = color.black, size = size.tiny)
+
+// ---------------------------------------------------------------- QQE
+// RSI trailing band; a signal is the first bar the smoothed RSI is on the other side of it
+qqeWilders = qqeRsiLen * 2 - 1
+qqeRsiMa = ta.ema(ta.rsi(close, qqeRsiLen), qqeSmooth)
+qqeAtrRsi = math.abs(qqeRsiMa[1] - qqeRsiMa)
+qqeDar = ta.ema(ta.ema(qqeAtrRsi, qqeWilders), qqeWilders) * qqeFactor
+
+qqeLongBand = 0.0
+qqeShortBand = 0.0
+qqeTrend = 0
+qqeNewShort = qqeRsiMa + qqeDar
+qqeNewLong = qqeRsiMa - qqeDar
+qqeLongBand := qqeRsiMa[1] > qqeLongBand[1] and qqeRsiMa > qqeLongBand[1] ? math.max(qqeLongBand[1], qqeNewLong) : qqeNewLong
+qqeShortBand := qqeRsiMa[1] < qqeShortBand[1] and qqeRsiMa < qqeShortBand[1] ? math.min(qqeShortBand[1], qqeNewShort) : qqeNewShort
+qqeCrossDn = ta.cross(qqeLongBand[1], qqeRsiMa)
+qqeTrend := ta.cross(qqeRsiMa, qqeShortBand[1]) ? 1 : qqeCrossDn ? -1 : nz(qqeTrend[1], 1)
+qqeLine = qqeTrend == 1 ? qqeLongBand : qqeShortBand
+
+qqeAbove = 0
+qqeBelow = 0
+qqeAbove := qqeLine < qqeRsiMa ? nz(qqeAbove[1]) + 1 : 0
+qqeBelow := qqeLine > qqeRsiMa ? nz(qqeBelow[1]) + 1 : 0
+qqeLong = qqeAbove == 1
+qqeShort = qqeBelow == 1
+
+plotshape(showQQE and qqeLong, "QQE long", shape.labelup, location.bottom, color.new(color.teal, 25), text = "QQE", textcolor = color.white, size = size.tiny)
+plotshape(showQQE and qqeShort, "QQE short", shape.labeldown, location.top, color.new(color.orange, 25), text = "QQE", textcolor = color.white, size = size.tiny)
+
+// ---------------------------------------------------------------- Vix Fix
+// Williams Vix Fix: marks capitulation lows, fires when the spike starts to fade
+vixHigh = ta.highest(close, vixPd)
+wvf = (vixHigh - low) / vixHigh * 100
+vixUpper = ta.sma(wvf, vixBbl) + vixMult * ta.stdev(wvf, vixBbl)
+vixRange = ta.highest(wvf, vixLb) * vixPh
+
+vixUpRange = low > low[1] and close > high[1]
+vixUpAggr = close > close[1] and close > open[1]
+vixSpiked = wvf[1] >= vixUpper[1] or wvf[1] >= vixRange[1]
+vixFaded = wvf < vixUpper and wvf < vixRange
+vixWeak = close < close[40] or close < close[14]
+vixLong1 = vixUpRange and close > close[3] and vixWeak and vixSpiked and vixFaded
+vixLong2 = vixUpAggr and close > close[3] and vixWeak and vixSpiked and not vixFaded
+
+var string lastVix = "-"
+if vixLong1 or vixLong2
+    lastVix := vixLong1 ? "Long 1" : "Long 2"
+
+plotshape(showVix and vixLong1, "Vix Fix long 1", shape.triangleup, location.bottom, color.new(#15FF00, 0), size = size.tiny)
+plotshape(showVix and vixLong2, "Vix Fix long 2", shape.triangleup, location.bottom, color.new(color.teal, 0), size = size.tiny)
+bgcolor(showVix and vixBg and (vixLong1 or vixLong2) ? color.new(#15FF00, 85) : na, title = "Vix Fix background")
 
 // ---------------------------------------------------------------- trade levels
 var int tDir = 0
@@ -328,7 +394,7 @@ dashPosition(string s) =>
     s == "Top Right" ? position.top_right : s == "Middle Right" ? position.middle_right : s == "Bottom Right" ? position.bottom_right : s == "Top Left" ? position.top_left : s == "Middle Left" ? position.middle_left : position.bottom_left
 
 dashTextSize = dashSize == "Tiny" ? size.tiny : dashSize == "Small" ? size.small : size.normal
-var table dash = table.new(dashPosition(dashPos), 2, 10, bgcolor = color.new(color.black, 15), frame_color = color.new(color.gray, 40), frame_width = 1, border_color = color.new(color.gray, 60), border_width = 1)
+var table dash = table.new(dashPosition(dashPos), 2, 12, bgcolor = color.new(color.black, 15), frame_color = color.new(color.gray, 40), frame_width = 1, border_color = color.new(color.gray, 60), border_width = 1)
 
 dashRow(int r, string k, string v, color c) =>
     table.cell(dash, 0, r, k, text_color = color.white, text_halign = text.align_left, text_size = dashTextSize)
@@ -349,10 +415,15 @@ if barstate.islast and showDash
     dashRow(7, "Stops", str.tostring(nSL), color.red)
     dashRow(8, "TP1 rate", winRate, color.white)
     dashRow(9, "Last divergence", lastDiv, str.contains(lastDiv, "ull") ? color.lime : str.contains(lastDiv, "ear") ? color.red : color.gray)
+    dashRow(10, "QQE", qqeTrend == 1 ? "Bullish" : "Bearish", qqeTrend == 1 ? color.lime : color.red)
+    dashRow(11, "Last Vix Fix", lastVix, lastVix == "-" ? color.gray : color.lime)
 
 // ---------------------------------------------------------------- alerts
 alertcondition(buy, "Buy signal", "Algo Signals: BUY {{ticker}} @ {{close}}")
 alertcondition(sell, "Sell signal", "Algo Signals: SELL {{ticker}} @ {{close}}")
+alertcondition(qqeLong, "QQE long", "Algo Signals: QQE long {{ticker}}")
+alertcondition(qqeShort, "QQE short", "Algo Signals: QQE short {{ticker}}")
+alertcondition(vixLong1 or vixLong2, "Vix Fix long", "Algo Signals: Vix Fix bottom {{ticker}}")
 alertcondition(bullDiv, "Bullish divergence", "Algo Signals: bullish divergence {{ticker}}")
 alertcondition(bearDiv, "Bearish divergence", "Algo Signals: bearish divergence {{ticker}}")
 alertcondition(evTP1, "TP1 hit", "Algo Signals: TP1 hit {{ticker}}")
