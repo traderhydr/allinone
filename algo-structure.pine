@@ -1,0 +1,309 @@
+//@version=5
+indicator("Algo Structure", overlay = true, max_labels_count = 500, max_lines_count = 500, max_boxes_count = 500, max_bars_back = 500)
+
+// =====================================================================
+//  ALGO STRUCTURE  (companion to algo-signals.pine)
+//  Market structure : Price Action Concepts (swing + internal BOS / CHoCH)
+//  Order blocks     : Price Action Concepts (volume-tagged, mitigated on close or wick)
+//  Fair value gaps  : Mayfair
+//  Liquidity        : Price Action Concepts (equal highs / lows, sweeps, premium / discount)
+//  Prior-period H/L : Mayfair (previous day / week / month)
+//  Supply / demand  : Neural Network (swing zones) + key swing levels as support / resistance
+// =====================================================================
+
+// ---------------------------------------------------------------- inputs
+gStr = "Market structure"
+showSwing = input.bool(true, "Swing structure", group = gStr)
+swingLen  = input.int(25, "Swing length", minval = 3, group = gStr)
+showInt   = input.bool(false, "Internal structure", group = gStr)
+intLen    = input.int(5, "Internal length", minval = 2, group = gStr)
+showKey   = input.bool(false, "Key swing levels (support / resistance)", group = gStr)
+bullC     = input.color(#089981, "Bullish colour", group = gStr)
+bearC     = input.color(#f23645, "Bearish colour", group = gStr)
+
+gOB = "Order blocks"
+showOB  = input.bool(true, "Order blocks", group = gOB)
+obMax   = input.int(5, "Blocks kept per side", minval = 1, maxval = 20, group = gOB)
+obMitig = input.string("Close", "Mitigation", options = ["Close", "Wick"], group = gOB)
+
+gFVG = "Fair value gaps"
+showFVG = input.bool(true, "Fair value gaps", group = gFVG)
+fvgMax  = input.int(8, "Gaps kept per side", minval = 1, maxval = 30, group = gFVG)
+fvgMin  = input.float(0.1, "Min gap size (x ATR50)", minval = 0, step = 0.05, group = gFVG)
+
+gLiq = "Liquidity"
+showEQ    = input.bool(true, "Equal highs / lows", group = gLiq)
+showSweep = input.bool(true, "Liquidity sweeps", group = gLiq)
+liqLen    = input.int(5, "Pivot length", minval = 2, group = gLiq)
+eqTol     = input.float(0.1, "Equal tolerance (x ATR50)", minval = 0.01, step = 0.01, group = gLiq)
+showPD    = input.bool(false, "Premium / discount zones", group = gLiq)
+
+gSD = "Supply / demand"
+showSD  = input.bool(false, "Supply / demand zones", group = gSD)
+sdLen   = input.int(10, "Swing length", minval = 2, group = gSD)
+sdMax   = input.int(5, "Zones kept per side", minval = 1, maxval = 20, group = gSD)
+sdWidth = input.float(0.5, "Zone height (x ATR50)", minval = 0.1, step = 0.1, group = gSD)
+
+gMTF = "Previous period high / low"
+showD = input.bool(true, "Day", group = gMTF)
+showW = input.bool(true, "Week", group = gMTF)
+showM = input.bool(false, "Month", group = gMTF)
+
+// ---------------------------------------------------------------- shared series
+float atr = ta.atr(50)
+float volAvg = ta.sma(volume, 50)
+
+// ---------------------------------------------------------------- structure
+// Returns [event, last swing high, its bar, last swing low, its bar, trend]
+// event: 1 bullish BOS, 2 bullish CHoCH, -1 bearish BOS, -2 bearish CHoCH
+structure(int len, bool draw, bool isInternal) =>
+    var float hiLvl = na
+    var int hiBar = na
+    var float loLvl = na
+    var int loBar = na
+    var bool hiDone = true
+    var bool loDone = true
+    var int trend = 0
+    int ev = 0
+    float ph = ta.pivothigh(high, len, len)
+    float pl = ta.pivotlow(low, len, len)
+    if not na(ph)
+        hiLvl := ph
+        hiBar := bar_index - len
+        hiDone := false
+    if not na(pl)
+        loLvl := pl
+        loBar := bar_index - len
+        loDone := false
+    if not hiDone and close > hiLvl
+        ev := trend == -1 ? 2 : 1
+        if draw
+            line.new(hiBar, hiLvl, bar_index, hiLvl, color = bullC, style = isInternal ? line.style_dashed : line.style_solid)
+            label.new(math.round((hiBar + bar_index) / 2), hiLvl, ev == 2 ? "CHoCH" : "BOS", style = label.style_label_down, color = color.new(color.white, 100), textcolor = bullC, size = isInternal ? size.tiny : size.small)
+        hiDone := true
+        trend := 1
+    if not loDone and close < loLvl
+        ev := trend == 1 ? -2 : -1
+        if draw
+            line.new(loBar, loLvl, bar_index, loLvl, color = bearC, style = isInternal ? line.style_dashed : line.style_solid)
+            label.new(math.round((loBar + bar_index) / 2), loLvl, ev == -2 ? "CHoCH" : "BOS", style = label.style_label_up, color = color.new(color.white, 100), textcolor = bearC, size = isInternal ? size.tiny : size.small)
+        loDone := true
+        trend := -1
+    [ev, hiLvl, hiBar, loLvl, loBar, trend]
+
+[swEv, swHi, swHiBar, swLo, swLoBar, swTrend] = structure(swingLen, showSwing, false)
+[inEv, inHi, inHiBar, inLo, inLoBar, inTrend] = structure(intLen, showInt, true)
+
+plot(showKey ? swHi : na, "Swing high", color.new(bearC, 30), 1, plot.style_stepline)
+plot(showKey ? swLo : na, "Swing low", color.new(bullC, 30), 1, plot.style_stepline)
+
+// ---------------------------------------------------------------- order blocks
+var box[] bullOB = array.new_box()
+var box[] bearOB = array.new_box()
+
+// bullish: lowest-low candle since the broken swing high; bearish: highest-high candle since the broken swing low
+makeOB(bool isBull, int fromBar) =>
+    int n = math.min(bar_index - fromBar, 400)
+    float ext = isBull ? 1e10 : -1e10
+    int idx = 0
+    for i = 0 to n
+        if isBull ? low[i] < ext : high[i] > ext
+            ext := isBull ? low[i] : high[i]
+            idx := i
+    float rv = volume[idx] / volAvg[idx]
+    string txt = "OB " + (na(rv) ? "" : str.tostring(rv, "0.0") + "x")
+    color c = isBull ? bullC : bearC
+    b = box.new(left = bar_index - idx, top = high[idx], right = bar_index, bottom = low[idx], border_color = color.new(c, 40), bgcolor = color.new(c, 85), extend = extend.right, text = txt, text_color = c, text_size = size.small)
+    if isBull
+        array.push(bullOB, b)
+        if array.size(bullOB) > obMax
+            box.delete(array.shift(bullOB))
+    else
+        array.push(bearOB, b)
+        if array.size(bearOB) > obMax
+            box.delete(array.shift(bearOB))
+
+if showOB
+    if swEv > 0 and not na(swHiBar)
+        makeOB(true, swHiBar)
+    if swEv < 0 and not na(swLoBar)
+        makeOB(false, swLoBar)
+
+// delete blocks once price trades through them
+if array.size(bullOB) > 0
+    for i = array.size(bullOB) - 1 to 0
+        b = array.get(bullOB, i)
+        if (obMitig == "Close" ? close : low) < box.get_bottom(b)
+            box.delete(b)
+            array.remove(bullOB, i)
+if array.size(bearOB) > 0
+    for i = array.size(bearOB) - 1 to 0
+        b = array.get(bearOB, i)
+        if (obMitig == "Close" ? close : high) > box.get_top(b)
+            box.delete(b)
+            array.remove(bearOB, i)
+
+// ---------------------------------------------------------------- fair value gaps
+var box[] bullFVG = array.new_box()
+var box[] bearFVG = array.new_box()
+
+bullGap = low > high[2] and close[1] > high[2] and (low - high[2]) > atr * fvgMin
+bearGap = high < low[2] and close[1] < low[2] and (low[2] - high) > atr * fvgMin
+
+if showFVG and bullGap
+    array.push(bullFVG, box.new(left = bar_index - 2, top = low, right = bar_index, bottom = high[2], border_color = color.new(bullC, 70), bgcolor = color.new(bullC, 88), extend = extend.right))
+    if array.size(bullFVG) > fvgMax
+        box.delete(array.shift(bullFVG))
+if showFVG and bearGap
+    array.push(bearFVG, box.new(left = bar_index - 2, top = low[2], right = bar_index, bottom = high, border_color = color.new(bearC, 70), bgcolor = color.new(bearC, 88), extend = extend.right))
+    if array.size(bearFVG) > fvgMax
+        box.delete(array.shift(bearFVG))
+
+// a gap is filled once price trades back through it
+if array.size(bullFVG) > 0
+    for i = array.size(bullFVG) - 1 to 0
+        b = array.get(bullFVG, i)
+        if low < box.get_bottom(b)
+            box.delete(b)
+            array.remove(bullFVG, i)
+if array.size(bearFVG) > 0
+    for i = array.size(bearFVG) - 1 to 0
+        b = array.get(bearFVG, i)
+        if high > box.get_top(b)
+            box.delete(b)
+            array.remove(bearFVG, i)
+
+// ---------------------------------------------------------------- liquidity
+float eqPH = ta.pivothigh(high, liqLen, liqLen)
+float eqPL = ta.pivotlow(low, liqLen, liqLen)
+var float lastPH = na
+var int lastPHBar = na
+var float lastPL = na
+var int lastPLBar = na
+var bool phSwept = true
+var bool plSwept = true
+
+if not na(eqPH)
+    if showEQ and not na(lastPH) and not na(atr) and math.abs(eqPH - lastPH) <= atr * eqTol
+        line.new(lastPHBar, lastPH, bar_index - liqLen, eqPH, color = bearC, style = line.style_dotted)
+        label.new(math.round((lastPHBar + bar_index - liqLen) / 2), math.max(lastPH, eqPH), "EQH", style = label.style_label_down, color = color.new(color.white, 100), textcolor = bearC, size = size.tiny)
+    lastPH := eqPH
+    lastPHBar := bar_index - liqLen
+    phSwept := false
+if not na(eqPL)
+    if showEQ and not na(lastPL) and not na(atr) and math.abs(eqPL - lastPL) <= atr * eqTol
+        line.new(lastPLBar, lastPL, bar_index - liqLen, eqPL, color = bullC, style = line.style_dotted)
+        label.new(math.round((lastPLBar + bar_index - liqLen) / 2), math.min(lastPL, eqPL), "EQL", style = label.style_label_up, color = color.new(color.white, 100), textcolor = bullC, size = size.tiny)
+    lastPL := eqPL
+    lastPLBar := bar_index - liqLen
+    plSwept := false
+
+bool sweepHigh = false
+bool sweepLow = false
+// a sweep is a wick through the level that closes back inside; a close through it is a break, not a sweep
+if not phSwept and not na(lastPH)
+    if high > lastPH and close < lastPH
+        sweepHigh := true
+        phSwept := true
+    else if close > lastPH
+        phSwept := true
+if not plSwept and not na(lastPL)
+    if low < lastPL and close > lastPL
+        sweepLow := true
+        plSwept := true
+    else if close < lastPL
+        plSwept := true
+
+plotshape(showSweep and sweepHigh, "Sweep high", shape.xcross, location.abovebar, bearC, size = size.tiny)
+plotshape(showSweep and sweepLow, "Sweep low", shape.xcross, location.belowbar, bullC, size = size.tiny)
+
+// premium / discount from the latest swing range
+var box[] pdBoxes = array.new_box()
+if barstate.islast and showPD and not na(swHi) and not na(swLo)
+    for pb in pdBoxes
+        box.delete(pb)
+    array.clear(pdBoxes)
+    int pdL = math.min(swHiBar, swLoBar)
+    int pdR = bar_index + 5
+    array.push(pdBoxes, box.new(left = pdL, top = swHi, right = pdR, bottom = swHi * 0.95 + swLo * 0.05, border_color = na, bgcolor = color.new(bearC, 85), text = "Premium", text_color = bearC, text_size = size.small))
+    array.push(pdBoxes, box.new(left = pdL, top = swHi * 0.525 + swLo * 0.475, right = pdR, bottom = swHi * 0.475 + swLo * 0.525, border_color = na, bgcolor = color.new(color.gray, 85), text = "Equilibrium", text_color = color.gray, text_size = size.small))
+    array.push(pdBoxes, box.new(left = pdL, top = swLo * 0.95 + swHi * 0.05, right = pdR, bottom = swLo, border_color = na, bgcolor = color.new(bullC, 85), text = "Discount", text_color = bullC, text_size = size.small))
+
+// ---------------------------------------------------------------- supply / demand
+var box[] supplyBoxes = array.new_box()
+var box[] demandBoxes = array.new_box()
+
+overlaps(box[] arr, float mid) =>
+    bool hit = false
+    if array.size(arr) > 0
+        for i = 0 to array.size(arr) - 1
+            b = array.get(arr, i)
+            if math.abs((box.get_top(b) + box.get_bottom(b)) / 2 - mid) < atr * 2
+                hit := true
+    hit
+
+float sdPH = ta.pivothigh(high, sdLen, sdLen)
+float sdPL = ta.pivotlow(low, sdLen, sdLen)
+
+if showSD and not na(atr)
+    if not na(sdPH)
+        if not overlaps(supplyBoxes, sdPH - atr * sdWidth / 2)
+            array.push(supplyBoxes, box.new(left = bar_index - sdLen, top = sdPH, right = bar_index, bottom = sdPH - atr * sdWidth, border_color = color.new(bearC, 50), bgcolor = color.new(bearC, 85), extend = extend.right, text = "Supply", text_color = bearC, text_size = size.small))
+            if array.size(supplyBoxes) > sdMax
+                box.delete(array.shift(supplyBoxes))
+    if not na(sdPL)
+        if not overlaps(demandBoxes, sdPL + atr * sdWidth / 2)
+            array.push(demandBoxes, box.new(left = bar_index - sdLen, top = sdPL + atr * sdWidth, right = bar_index, bottom = sdPL, border_color = color.new(bullC, 50), bgcolor = color.new(bullC, 85), extend = extend.right, text = "Demand", text_color = bullC, text_size = size.small))
+            if array.size(demandBoxes) > sdMax
+                box.delete(array.shift(demandBoxes))
+
+if array.size(supplyBoxes) > 0
+    for i = array.size(supplyBoxes) - 1 to 0
+        b = array.get(supplyBoxes, i)
+        if close > box.get_top(b)
+            box.delete(b)
+            array.remove(supplyBoxes, i)
+if array.size(demandBoxes) > 0
+    for i = array.size(demandBoxes) - 1 to 0
+        b = array.get(demandBoxes, i)
+        if close < box.get_bottom(b)
+            box.delete(b)
+            array.remove(demandBoxes, i)
+
+// ---------------------------------------------------------------- previous period high / low
+[pdH, pdL] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pwH, pwL] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pmH, pmL] = request.security(syminfo.tickerid, "M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+
+plot(showD ? pdH : na, "Prev day high", color.new(bearC, 30), 1, plot.style_linebr)
+plot(showD ? pdL : na, "Prev day low", color.new(bullC, 30), 1, plot.style_linebr)
+plot(showW ? pwH : na, "Prev week high", color.new(bearC, 30), 2, plot.style_linebr)
+plot(showW ? pwL : na, "Prev week low", color.new(bullC, 30), 2, plot.style_linebr)
+plot(showM ? pmH : na, "Prev month high", color.new(bearC, 30), 3, plot.style_linebr)
+plot(showM ? pmL : na, "Prev month low", color.new(bullC, 30), 3, plot.style_linebr)
+
+var label[] mtfLbls = array.new_label()
+tag(bool show, float p, string t, color c) =>
+    if show and not na(p)
+        array.push(mtfLbls, label.new(bar_index + 2, p, t, style = label.style_none, textcolor = c, size = size.small))
+
+if barstate.islast
+    for ml in mtfLbls
+        label.delete(ml)
+    array.clear(mtfLbls)
+    tag(showD, pdH, "PDH", bearC)
+    tag(showD, pdL, "PDL", bullC)
+    tag(showW, pwH, "PWH", bearC)
+    tag(showW, pwL, "PWL", bullC)
+    tag(showM, pmH, "PMH", bearC)
+    tag(showM, pmL, "PML", bullC)
+
+// ---------------------------------------------------------------- alerts
+alertcondition(swEv == 1, "Swing bullish BOS", "Algo Structure: bullish BOS {{ticker}}")
+alertcondition(swEv == 2, "Swing bullish CHoCH", "Algo Structure: bullish CHoCH {{ticker}}")
+alertcondition(swEv == -1, "Swing bearish BOS", "Algo Structure: bearish BOS {{ticker}}")
+alertcondition(swEv == -2, "Swing bearish CHoCH", "Algo Structure: bearish CHoCH {{ticker}}")
+alertcondition(sweepHigh, "Sweep of highs", "Algo Structure: liquidity sweep above {{ticker}}")
+alertcondition(sweepLow, "Sweep of lows", "Algo Structure: liquidity sweep below {{ticker}}")
+alertcondition(bullGap, "Bullish FVG", "Algo Structure: bullish FVG {{ticker}}")
+alertcondition(bearGap, "Bearish FVG", "Algo Structure: bearish FVG {{ticker}}")

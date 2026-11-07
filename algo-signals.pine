@@ -1,0 +1,303 @@
+//@version=5
+indicator("Algo Signals", overlay = true, max_labels_count = 500, max_lines_count = 500, max_bars_back = 500)
+
+// =====================================================================
+//  ALGO SIGNALS  (companion to algo-structure.pine)
+//  Signals        : Infinity Algo  (range supertrend + McGinley Braid filter)
+//  Trade levels   : UT Bot exits   (TP1-3 / stop, hit tracking, stats)
+//                   ELITE TP       (entry / SL / TP lines and labels, dashboard)
+//  Trend channel  : Price Action Explorer (HILO MA channel, bar colours)
+//  Daily levels   : Brahmastra     (CPR today / tomorrow / weekly, R1-R3 S1-S3)
+// =====================================================================
+
+// ---------------------------------------------------------------- inputs
+gSig = "Signals (Infinity Algo)"
+sens      = input.float(6.0, "Sensitivity (0.5 - 10)", minval = 0.5, maxval = 10, step = 0.1, group = gSig)
+useBraid  = input.bool(true, "Braid filter", group = gSig)
+braidStr  = input.int(60, "Braid filter strength", minval = 1, group = gSig)
+showSig   = input.bool(true, "Show buy / sell labels", group = gSig)
+
+gLvl = "Trade levels (UT Bot exits, ELITE TP style)"
+showLvls   = input.bool(true, "Show entry / stop / targets", group = gLvl)
+lvlMode    = input.string("ATR", "Level mode", options = ["ATR", "Percent"], group = gLvl)
+atrLen     = input.int(14, "ATR length", minval = 1, group = gLvl)
+tp1a       = input.float(1.0, "TP1 (x ATR)", minval = 0.1, step = 0.1, group = gLvl)
+tp2a       = input.float(2.0, "TP2 (x ATR)", minval = 0.1, step = 0.1, group = gLvl)
+tp3a       = input.float(3.0, "TP3 (x ATR)", minval = 0.1, step = 0.1, group = gLvl)
+sla        = input.float(1.5, "Stop (x ATR)", minval = 0.1, step = 0.1, group = gLvl)
+tp1p       = input.float(1.0, "TP1 (%)", minval = 0.05, step = 0.1, group = gLvl)
+tp2p       = input.float(3.0, "TP2 (%)", minval = 0.05, step = 0.1, group = gLvl)
+tp3p       = input.float(5.0, "TP3 (%)", minval = 0.05, step = 0.1, group = gLvl)
+slp        = input.float(4.0, "Stop (%)", minval = 0.05, step = 0.1, group = gLvl)
+beAfterTP1 = input.bool(false, "Move stop to entry after TP1", group = gLvl)
+
+gCh = "Trend channel (Price Action Explorer)"
+showCh  = input.bool(true, "Show channel", group = gCh)
+chType  = input.string("EMA", "MA type", options = ["EMA", "SMA", "WMA", "HMA"], group = gCh)
+chLen   = input.int(20, "Length", minval = 2, group = gCh)
+chBars  = input.bool(true, "Colour bars by channel", group = gCh)
+showEma = input.bool(true, "EMA 200", group = gCh)
+
+gCPR = "CPR (Brahmastra)"
+showCPR  = input.bool(true, "Today's CPR", group = gCPR)
+showCPRL = input.bool(false, "R1-R3 / S1-S3", group = gCPR)
+showTCPR = input.bool(true, "Tomorrow's CPR", group = gCPR)
+showWCPR = input.bool(false, "Weekly CPR", group = gCPR)
+
+gDash = "Dashboard (ELITE TP style)"
+showDash = input.bool(true, "Show dashboard", group = gDash)
+dashPos  = input.string("Top Right", "Position", options = ["Top Right", "Middle Right", "Bottom Right", "Top Left", "Middle Left", "Bottom Left"], group = gDash)
+dashSize = input.string("Small", "Size", options = ["Normal", "Small", "Tiny"], group = gDash)
+
+// ---------------------------------------------------------------- signal engine
+// Range supertrend, as in Infinity Algo: band half-width = factor * 2 * (high - low)
+infSupertrend(float factor) =>
+    rangec = 2 * (high - low)
+    upperBand = close + factor * rangec
+    lowerBand = close - factor * rangec
+    prevLowerBand = nz(lowerBand[1])
+    prevUpperBand = nz(upperBand[1])
+    lowerBand := lowerBand > prevLowerBand or close[1] < prevLowerBand ? lowerBand : prevLowerBand
+    upperBand := upperBand < prevUpperBand or close[1] > prevUpperBand ? upperBand : prevUpperBand
+    int direction = na
+    float superTrend = na
+    prevSuperTrend = superTrend[1]
+    if na(rangec[1])
+        direction := 1
+    else if prevSuperTrend == prevUpperBand
+        direction := close > upperBand ? -1 : 1
+    else
+        direction := close < lowerBand ? 1 : -1
+    superTrend := direction == -1 ? lowerBand : upperBand
+    [superTrend, direction]
+
+mcginley(float src, int len) =>
+    e = ta.ema(src, len)
+    mg = 0.0
+    mg := na(mg[1]) ? e : mg[1] + (src - mg[1]) / (len * math.pow(src / mg[1], 4))
+    mg
+
+[st, stDir] = infSupertrend(sens)
+bull = ta.crossover(close, st)
+bear = ta.crossunder(close, st)
+
+ma01 = mcginley(close, 3)
+ma02 = mcginley(open, 7)
+ma03 = mcginley(close, 20)
+braidDif = math.max(ma01, ma02, ma03) - math.min(ma01, ma02, ma03)
+braidMin = ta.atr(14) * braidStr / 100
+braidUp = ma01 > ma02 and braidDif > braidMin
+braidDn = ma02 > ma01 and braidDif > braidMin
+
+buy = bull and (not useBraid or braidUp)
+sell = bear and (not useBraid or braidDn)
+
+plotshape(showSig and buy, "Buy", shape.labelup, location.belowbar, color.new(color.green, 0), text = "BUY", textcolor = color.white, size = size.small)
+plotshape(showSig and sell, "Sell", shape.labeldown, location.abovebar, color.new(color.red, 0), text = "SELL", textcolor = color.white, size = size.small)
+
+// ---------------------------------------------------------------- trend channel
+pick(float src, int len) =>
+    e = ta.ema(src, len)
+    s = ta.sma(src, len)
+    w = ta.wma(src, len)
+    h = ta.hma(src, len)
+    chType == "EMA" ? e : chType == "SMA" ? s : chType == "WMA" ? w : h
+
+chU = pick(high, chLen)
+chL = pick(low, chLen)
+chC = pick(close, chLen)
+pU = plot(showCh ? chU : na, "Channel upper", color.new(color.blue, 30))
+pL = plot(showCh ? chL : na, "Channel lower", color.new(color.blue, 30))
+plot(showCh ? chC : na, "Channel centre", color.new(color.red, 30), 2)
+fill(pU, pL, color.new(color.blue, 92), "Channel fill")
+barcolor(chBars ? (close > chU and close > chL ? color.lime : close < chU and close < chL ? color.red : color.purple) : na, title = "Channel bar colour")
+
+ema200 = ta.ema(close, 200)
+plot(showEma ? ema200 : na, "EMA 200", color.new(color.orange, 0), 2)
+
+// ---------------------------------------------------------------- trade levels
+var int tDir = 0
+var bool tOpen = false
+var int tBar = na
+var float tEntry = na
+var float tSL = na
+var float tTP1 = na
+var float tTP2 = na
+var float tTP3 = na
+var bool tH1 = false
+var bool tH2 = false
+var bool tH3 = false
+var int nTrades = 0
+var int nTP1 = 0
+var int nTP2 = 0
+var int nTP3 = 0
+var int nSL = 0
+var string lastSig = "-"
+var line lnE = na
+var line lnS = na
+var line lnT1 = na
+var line lnT2 = na
+var line lnT3 = na
+
+float atrV = ta.atr(atrLen)
+float u1 = lvlMode == "ATR" ? atrV * tp1a : close * tp1p / 100
+float u2 = lvlMode == "ATR" ? atrV * tp2a : close * tp2p / 100
+float u3 = lvlMode == "ATR" ? atrV * tp3a : close * tp3p / 100
+float uS = lvlMode == "ATR" ? atrV * sla : close * slp / 100
+
+bool closedNow = false
+bool evTP1 = false
+bool evTP2 = false
+bool evTP3 = false
+bool evSL = false
+
+// manage the open trade (stop is checked first, the conservative assumption)
+if tOpen and bar_index > tBar
+    float effSL = beAfterTP1 and tH1 ? tEntry : tSL
+    bool stopped = tDir == 1 ? low <= effSL : high >= effSL
+    if stopped
+        nSL += 1
+        evSL := true
+        tOpen := false
+        closedNow := true
+    else
+        if not tH1 and (tDir == 1 ? high >= tTP1 : low <= tTP1)
+            tH1 := true
+            nTP1 += 1
+            evTP1 := true
+            if beAfterTP1 and not na(lnS)
+                line.set_y1(lnS, tEntry)
+                line.set_y2(lnS, tEntry)
+        if not tH2 and (tDir == 1 ? high >= tTP2 : low <= tTP2)
+            tH2 := true
+            nTP2 += 1
+            evTP2 := true
+        if not tH3 and (tDir == 1 ? high >= tTP3 : low <= tTP3)
+            tH3 := true
+            nTP3 += 1
+            evTP3 := true
+            tOpen := false
+            closedNow := true
+
+// open a new trade on each signal
+if buy or sell
+    tDir := buy ? 1 : -1
+    tEntry := close
+    tSL := close - tDir * uS
+    tTP1 := close + tDir * u1
+    tTP2 := close + tDir * u2
+    tTP3 := close + tDir * u3
+    tH1 := false
+    tH2 := false
+    tH3 := false
+    tOpen := true
+    tBar := bar_index
+    nTrades += 1
+    lastSig := buy ? "BUY" : "SELL"
+    if showLvls
+        lnE := line.new(bar_index, tEntry, bar_index + 1, tEntry, color = color.new(color.blue, 0), style = line.style_solid)
+        lnS := line.new(bar_index, tSL, bar_index + 1, tSL, color = color.new(color.red, 0), style = line.style_dotted)
+        lnT1 := line.new(bar_index, tTP1, bar_index + 1, tTP1, color = color.new(color.green, 0), style = line.style_dotted)
+        lnT2 := line.new(bar_index, tTP2, bar_index + 1, tTP2, color = color.new(color.green, 0), style = line.style_dotted)
+        lnT3 := line.new(bar_index, tTP3, bar_index + 1, tTP3, color = color.new(color.green, 0), style = line.style_dotted)
+
+// stretch the lines of the active trade to the current bar
+if showLvls and (tOpen or closedNow) and not na(lnE)
+    line.set_x2(lnE, bar_index)
+    line.set_x2(lnS, bar_index)
+    line.set_x2(lnT1, bar_index)
+    line.set_x2(lnT2, bar_index)
+    line.set_x2(lnT3, bar_index)
+
+// price labels for the latest trade
+var label[] lvlLabels = array.new_label()
+if barstate.islast and showLvls and not na(tEntry)
+    for l in lvlLabels
+        label.delete(l)
+    array.clear(lvlLabels)
+    array.push(lvlLabels, label.new(bar_index + 1, tEntry, "Entry " + str.tostring(tEntry, format.mintick), style = label.style_label_left, color = color.new(color.blue, 0), textcolor = color.white, size = size.small))
+    array.push(lvlLabels, label.new(bar_index + 1, tSL, "SL " + str.tostring(tSL, format.mintick), style = label.style_label_left, color = color.new(color.red, 0), textcolor = color.white, size = size.small))
+    array.push(lvlLabels, label.new(bar_index + 1, tTP1, "TP1 " + str.tostring(tTP1, format.mintick) + (tH1 ? " hit" : ""), style = label.style_label_left, color = color.new(color.green, 0), textcolor = color.white, size = size.small))
+    array.push(lvlLabels, label.new(bar_index + 1, tTP2, "TP2 " + str.tostring(tTP2, format.mintick) + (tH2 ? " hit" : ""), style = label.style_label_left, color = color.new(color.green, 0), textcolor = color.white, size = size.small))
+    array.push(lvlLabels, label.new(bar_index + 1, tTP3, "TP3 " + str.tostring(tTP3, format.mintick) + (tH3 ? " hit" : ""), style = label.style_label_left, color = color.new(color.green, 0), textcolor = color.white, size = size.small))
+
+// ---------------------------------------------------------------- CPR
+cpr(float h, float l, float c) =>
+    p = (h + l + c) / 3
+    bc = (h + l) / 2
+    tc = 2 * p - bc
+    [p, bc, tc]
+
+[dH, dL, dC] = request.security(syminfo.tickerid, "D", [high[1], low[1], close[1]], lookahead = barmerge.lookahead_on)
+[dP, dBC, dTC] = cpr(dH, dL, dC)
+dR1 = 2 * dP - dL
+dS1 = 2 * dP - dH
+dR2 = dP + (dH - dL)
+dS2 = dP - (dH - dL)
+dR3 = dH + 2 * (dP - dL)
+dS3 = dL - 2 * (dH - dP)
+
+plot(showCPR ? dP : na, "CPR pivot", color.new(color.blue, 0), 2, plot.style_linebr)
+plot(showCPR ? dBC : na, "CPR BC", color.new(color.blue, 40), 1, plot.style_linebr)
+plot(showCPR ? dTC : na, "CPR TC", color.new(color.blue, 40), 1, plot.style_linebr)
+plot(showCPR and showCPRL ? dR1 : na, "R1", color.new(color.red, 30), 1, plot.style_linebr)
+plot(showCPR and showCPRL ? dR2 : na, "R2", color.new(color.red, 30), 1, plot.style_linebr)
+plot(showCPR and showCPRL ? dR3 : na, "R3", color.new(color.red, 30), 1, plot.style_linebr)
+plot(showCPR and showCPRL ? dS1 : na, "S1", color.new(color.green, 30), 1, plot.style_linebr)
+plot(showCPR and showCPRL ? dS2 : na, "S2", color.new(color.green, 30), 1, plot.style_linebr)
+plot(showCPR and showCPRL ? dS3 : na, "S3", color.new(color.green, 30), 1, plot.style_linebr)
+
+[wH, wL, wC] = request.security(syminfo.tickerid, "W", [high[1], low[1], close[1]], lookahead = barmerge.lookahead_on)
+[wP, wBC, wTC] = cpr(wH, wL, wC)
+plot(showWCPR ? wP : na, "Weekly CPR pivot", color.new(color.teal, 0), 2, plot.style_linebr)
+plot(showWCPR ? wBC : na, "Weekly CPR BC", color.new(color.teal, 40), 1, plot.style_linebr)
+plot(showWCPR ? wTC : na, "Weekly CPR TC", color.new(color.teal, 40), 1, plot.style_linebr)
+
+// tomorrow's CPR from today's developing high / low / close
+[tdH, tdL, tdC] = request.security(syminfo.tickerid, "D", [high, low, close])
+[tmP, tmBC, tmTC] = cpr(tdH, tdL, tdC)
+var line[] tmLines = array.new_line()
+var label tmLbl = na
+if barstate.islast and showTCPR
+    label.delete(tmLbl)
+    for ln in tmLines
+        line.delete(ln)
+    array.clear(tmLines)
+    array.push(tmLines, line.new(bar_index, tmP, bar_index + 15, tmP, color = color.new(color.purple, 0), width = 2))
+    array.push(tmLines, line.new(bar_index, tmBC, bar_index + 15, tmBC, color = color.new(color.purple, 40), style = line.style_dashed))
+    array.push(tmLines, line.new(bar_index, tmTC, bar_index + 15, tmTC, color = color.new(color.purple, 40), style = line.style_dashed))
+    tmLbl := label.new(bar_index + 15, tmP, "Tmrw CPR", style = label.style_none, textcolor = color.purple, size = size.small)
+
+// ---------------------------------------------------------------- dashboard
+dashPosition(string s) =>
+    s == "Top Right" ? position.top_right : s == "Middle Right" ? position.middle_right : s == "Bottom Right" ? position.bottom_right : s == "Top Left" ? position.top_left : s == "Middle Left" ? position.middle_left : position.bottom_left
+
+dashTextSize = dashSize == "Tiny" ? size.tiny : dashSize == "Small" ? size.small : size.normal
+var table dash = table.new(dashPosition(dashPos), 2, 9, bgcolor = color.new(color.black, 15), frame_color = color.new(color.gray, 40), frame_width = 1, border_color = color.new(color.gray, 60), border_width = 1)
+
+dashRow(int r, string k, string v, color c) =>
+    table.cell(dash, 0, r, k, text_color = color.white, text_halign = text.align_left, text_size = dashTextSize)
+    table.cell(dash, 1, r, v, text_color = c, text_halign = text.align_left, text_size = dashTextSize)
+
+if barstate.islast and showDash
+    closedTrades = nTrades - (tOpen ? 1 : 0)
+    winRate = closedTrades > 0 ? str.tostring(100.0 * nTP1 / closedTrades, "0") + "%" : "-"
+    inCh = close > chU and close > chL ? "Above" : close < chU and close < chL ? "Below" : "Inside"
+    table.cell(dash, 0, 0, "ALGO SIGNALS", text_color = color.white, bgcolor = color.new(color.blue, 30), text_size = dashTextSize)
+    table.cell(dash, 1, 0, syminfo.ticker, text_color = color.white, bgcolor = color.new(color.blue, 30), text_size = dashTextSize)
+    dashRow(1, "Last signal", lastSig, lastSig == "BUY" ? color.lime : lastSig == "SELL" ? color.red : color.gray)
+    dashRow(2, "Trend (EMA 200)", close > ema200 ? "Bullish" : "Bearish", close > ema200 ? color.lime : color.red)
+    dashRow(3, "Channel", inCh, inCh == "Above" ? color.lime : inCh == "Below" ? color.red : color.purple)
+    dashRow(4, "Braid filter", braidUp ? "Up" : braidDn ? "Down" : "Flat", braidUp ? color.lime : braidDn ? color.red : color.gray)
+    dashRow(5, "Trade", tOpen ? (tDir == 1 ? "Long open" : "Short open") : "None", tOpen ? color.yellow : color.gray)
+    dashRow(6, "TP1 / TP2 / TP3", str.tostring(nTP1) + " / " + str.tostring(nTP2) + " / " + str.tostring(nTP3), color.lime)
+    dashRow(7, "Stops", str.tostring(nSL), color.red)
+    dashRow(8, "TP1 rate", winRate, color.white)
+
+// ---------------------------------------------------------------- alerts
+alertcondition(buy, "Buy signal", "Algo Signals: BUY {{ticker}} @ {{close}}")
+alertcondition(sell, "Sell signal", "Algo Signals: SELL {{ticker}} @ {{close}}")
+alertcondition(evTP1, "TP1 hit", "Algo Signals: TP1 hit {{ticker}}")
+alertcondition(evTP2, "TP2 hit", "Algo Signals: TP2 hit {{ticker}}")
+alertcondition(evTP3, "TP3 hit", "Algo Signals: TP3 hit {{ticker}}")
+alertcondition(evSL, "Stop hit", "Algo Signals: stop hit {{ticker}}")
