@@ -30,6 +30,8 @@ tp2p       = input.float(3.0, "TP2 (%)", minval = 0.05, step = 0.1, group = gLvl
 tp3p       = input.float(5.0, "TP3 (%)", minval = 0.05, step = 0.1, group = gLvl)
 slp        = input.float(4.0, "Stop (%)", minval = 0.05, step = 0.1, group = gLvl)
 beAfterTP1 = input.bool(false, "Move stop to entry after TP1", group = gLvl)
+leverage   = input.int(15, "Leverage (x, shown in labels only)", minval = 1, maxval = 125, group = gLvl)
+maintPct   = input.float(0.5, "Maintenance margin % (liquidation estimate)", minval = 0, maxval = 5, step = 0.1, group = gLvl)
 
 gCh = "Trend channel (Price Action Explorer)"
 showCh  = input.bool(true, "Show channel", group = gCh)
@@ -350,17 +352,26 @@ if showLvls and (tOpen or closedNow) and not na(lnE)
     line.set_x2(lnT2, bar_index)
     line.set_x2(lnT3, bar_index)
 
-// price labels for the latest trade
+// price labels for the latest trade; percentages are return on margin at the chosen leverage (before fees)
+roeAt(float price) =>
+    tDir * (price - tEntry) / tEntry * 100 * leverage
+
+roeText(float price) =>
+    (roeAt(price) >= 0 ? " +" : " ") + str.tostring(roeAt(price), "0.0") + "%"
+
 var label[] lvlLabels = array.new_label()
 if barstate.islast and showLvls and not na(tEntry)
     for l in lvlLabels
         label.delete(l)
     array.clear(lvlLabels)
-    array.push(lvlLabels, label.new(bar_index + 1, tEntry, "Entry " + str.tostring(tEntry, format.mintick), style = label.style_label_left, color = color.new(color.blue, 0), textcolor = color.white, size = size.small))
-    array.push(lvlLabels, label.new(bar_index + 1, tSL, "SL " + str.tostring(tSL, format.mintick), style = label.style_label_left, color = color.new(color.red, 0), textcolor = color.white, size = size.small))
-    array.push(lvlLabels, label.new(bar_index + 1, tTP1, "TP1 " + str.tostring(tTP1, format.mintick) + (tH1 ? " hit" : ""), style = label.style_label_left, color = color.new(color.green, 0), textcolor = color.white, size = size.small))
-    array.push(lvlLabels, label.new(bar_index + 1, tTP2, "TP2 " + str.tostring(tTP2, format.mintick) + (tH2 ? " hit" : ""), style = label.style_label_left, color = color.new(color.green, 0), textcolor = color.white, size = size.small))
-    array.push(lvlLabels, label.new(bar_index + 1, tTP3, "TP3 " + str.tostring(tTP3, format.mintick) + (tH3 ? " hit" : ""), style = label.style_label_left, color = color.new(color.green, 0), textcolor = color.white, size = size.small))
+    float liq = tEntry * (1 - tDir * (1.0 / leverage - maintPct / 100))
+    bool stopPastLiq = tDir == 1 ? tSL <= liq : tSL >= liq
+    array.push(lvlLabels, label.new(bar_index + 1, tEntry, "Entry " + str.tostring(tEntry, format.mintick) + " (" + str.tostring(leverage) + "x)", style = label.style_label_left, color = color.new(color.blue, 0), textcolor = color.white, size = size.small))
+    array.push(lvlLabels, label.new(bar_index + 1, tSL, "SL " + str.tostring(tSL, format.mintick) + roeText(tSL) + (stopPastLiq ? " PAST LIQ" : ""), style = label.style_label_left, color = color.new(color.red, 0), textcolor = color.white, size = size.small))
+    array.push(lvlLabels, label.new(bar_index + 1, tTP1, "TP1 " + str.tostring(tTP1, format.mintick) + roeText(tTP1) + (tH1 ? " hit" : ""), style = label.style_label_left, color = color.new(color.green, 0), textcolor = color.white, size = size.small))
+    array.push(lvlLabels, label.new(bar_index + 1, tTP2, "TP2 " + str.tostring(tTP2, format.mintick) + roeText(tTP2) + (tH2 ? " hit" : ""), style = label.style_label_left, color = color.new(color.green, 0), textcolor = color.white, size = size.small))
+    array.push(lvlLabels, label.new(bar_index + 1, tTP3, "TP3 " + str.tostring(tTP3, format.mintick) + roeText(tTP3) + (tH3 ? " hit" : ""), style = label.style_label_left, color = color.new(color.green, 0), textcolor = color.white, size = size.small))
+    array.push(lvlLabels, label.new(bar_index + 1, liq, "Est. liq " + str.tostring(liq, format.mintick), style = label.style_label_left, color = color.new(color.maroon, 0), textcolor = color.white, size = size.small))
 
 // ---------------------------------------------------------------- CPR
 cpr(float h, float l, float c) =>

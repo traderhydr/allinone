@@ -77,7 +77,7 @@ def process_series(
             events = trades.advance(trade, candle, cfg.strategy)
             for ev in events:
                 stop = trade["entry"] if (ev == "sl" and cfg.strategy.be_after_tp1 and trade["hit"][0]) else None
-                send(event_message(symbol, timeframe, venue, trade, ev, stop))
+                send(event_message(symbol, timeframe, venue, trade, ev, stop, cfg.leverage))
                 sent += 1
             if trades.is_finished(events):
                 slot["trade"] = None
@@ -86,7 +86,7 @@ def process_series(
             lv = levels_at(candle.close, direction, analysis.atr[i], cfg.strategy)
             if lv.entry == lv.entry and lv.sl == lv.sl:  # skip if ATR was not ready (NaN)
                 slot["trade"] = trades.open_trade(lv, candle.ts)
-                send(signal_message(symbol, timeframe, venue, slot["trade"]))
+                send(signal_message(symbol, timeframe, venue, slot["trade"], cfg.leverage))
                 sent += 1
         slot["last_ts"] = candle.ts
     return sent

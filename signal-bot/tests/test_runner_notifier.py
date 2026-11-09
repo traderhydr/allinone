@@ -45,6 +45,13 @@ class ProcessTests(unittest.TestCase):
         self.assertIn("Stop hit", out[2])
         self.assertIsNone(state["k"]["trade"])
 
+    def test_messages_carry_the_configured_leverage(self):
+        state = {}
+        self.run_series(flat(100), state)
+        out = self.run_series(series([(100.5, 99.5), (102.5, 99)]), state, buy_at={100})
+        self.assertIn("15x cross", out[0])
+        self.assertIn("ROE", out[1])
+
     def test_no_duplicates_on_second_pass(self):
         state = {}
         self.run_series(flat(100), state)
@@ -135,6 +142,14 @@ class ConfigTests(unittest.TestCase):
         cfg = parse_config({"pairs": [{"exchange": "BloFin", "symbol": "eth-usdt", "timeframes": ["1H"]}]})
         self.assertEqual((cfg.pairs[0].exchange, cfg.pairs[0].symbol, cfg.pairs[0].timeframes), ("blofin", "ETH-USDT", ["1h"]))
         self.assertEqual(cfg.strategy.sensitivity, 6.0)
+        self.assertEqual(cfg.leverage.label, "15x cross")  # default
+
+    def test_leverage_setting(self):
+        base = {"pairs": [{"exchange": "binance", "symbol": "BTC-USDT"}]}
+        self.assertEqual(parse_config({**base, "leverage": {"x": 10, "mode": "isolated"}}).leverage.label, "10x isolated")
+        self.assertIsNone(parse_config({**base, "leverage": None}).leverage)
+        with self.assertRaises(ConfigError):
+            parse_config({**base, "leverage": 500})
 
     def test_rejections(self):
         bad = [
@@ -156,6 +171,7 @@ class ConfigTests(unittest.TestCase):
         path = os.path.join(os.path.dirname(__file__), "..", "config.example.json")
         cfg = parse_config(json.load(open(path)))
         self.assertEqual(len(cfg.pairs), 3)
+        self.assertEqual(cfg.leverage.label, "15x cross")
 
 
 class NotifierTests(unittest.TestCase):

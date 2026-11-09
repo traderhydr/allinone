@@ -15,6 +15,18 @@ Ported from `algo-signals.pine`: the Infinity Algo range supertrend, the McGinle
 
 Signals are computed only on **closed** candles, so a message never appears and then disappears.
 
+## Leverage (15x cross by default)
+
+Every message shows the leverage, the **return on margin** (ROE) at each target and at the stop, and an **estimated liquidation price**. A warning appears when the stop sits beyond that estimate. Set it in `config.json`:
+
+```json
+"leverage": {"x": 15, "mode": "cross", "maintenance_pct": 0.5}
+```
+
+Use `"leverage": null` to turn it off.
+
+This is **display only**. The bot never sets leverage or margin mode on the exchange and places no orders, so set 15x cross on Binance / BloFin yourself. The liquidation figure is an isolated-equivalent estimate: with cross margin the real price depends on your whole account balance and other open positions, and each symbol has its own maximum leverage and maintenance rate. ROE ignores fees and funding.
+
 ## Set up
 
 1. **Create the bot.** In Telegram, message `@BotFather`, send `/newbot`, and copy the token.

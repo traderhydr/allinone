@@ -6,6 +6,7 @@ from typing import List, Optional
 
 from .exchanges import TIMEFRAME_MS
 from .indicators import StrategyConfig
+from .leverage import Leverage, parse_leverage
 
 
 class ConfigError(ValueError):
@@ -27,6 +28,7 @@ class BotConfig:
     poll_seconds: int = 30
     history: int = 500
     strategy: StrategyConfig = field(default_factory=StrategyConfig)
+    leverage: Optional[Leverage] = field(default_factory=Leverage)  # 15x cross unless changed; null turns it off
 
 
 def _tf(value: str) -> str:
@@ -63,6 +65,11 @@ def parse_config(raw: dict) -> BotConfig:
     if strat.level_mode.upper() not in ("ATR", "PERCENT"):
         raise ConfigError("strategy.level_mode must be 'ATR' or 'Percent'")
 
+    try:
+        lev = parse_leverage(raw["leverage"]) if "leverage" in raw else Leverage()
+    except (ValueError, TypeError) as e:
+        raise ConfigError(str(e))
+
     history = int(raw.get("history", 500))
     if history < 100:
         raise ConfigError("history must be at least 100 candles (the indicators need warm-up)")
@@ -72,6 +79,7 @@ def parse_config(raw: dict) -> BotConfig:
         poll_seconds=max(10, int(raw.get("poll_seconds", 30))),
         history=history,
         strategy=strat,
+        leverage=lev,
     )
 
 

@@ -47,6 +47,7 @@ Not carried over: multi-timeframe FVG, harmonic / zigzag tools, and the per-asse
 - The volume profile covers the last N bars and is redrawn on the latest bar. Its value area defaults to 70% (NOSTRADAMUS used 100%, which highlights every row).
 - Divergence compares price pivots with oscillator pivots, so a label appears `Pivot lookback right` bars after the pivot (it is not repainted, just late).
 - QQE, Vix Fix and VWAP CCI signals sit at the bottom / top edge of the chart pane so they do not collide with the BUY / SELL labels. Vix Fix marks capitulation lows (long only), as in the original. VWAP CCI fires long when it crosses back above -200 and short when it crosses below +200. All three are on by default and can be switched off.
+- Labels on the latest trade show return on margin at the **Leverage** input (default 15x), plus an estimated liquidation level and a `PAST LIQ` flag when the stop is beyond it. This is label-only; it does not change any order or setting on an exchange.
 - The dashboard's TP1 rate is trades that reached TP1 divided by closed trades. It is a chart-reading aid, not a backtest.
 
 ### Status

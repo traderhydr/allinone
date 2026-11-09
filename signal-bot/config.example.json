@@ -2,6 +2,7 @@
   "timeframes": ["15m"],
   "poll_seconds": 30,
   "history": 500,
+  "leverage": {"x": 15, "mode": "cross", "maintenance_pct": 0.5},
   "pairs": [
     {"exchange": "binance", "market": "futures", "symbol": "BTC-USDT"},
     {"exchange": "binance", "market": "spot", "symbol": "ETH-USDT", "timeframes": ["1h", "4h"]},
