@@ -86,13 +86,22 @@ Restart=always
 WantedBy=multi-user.target
 ```
 
+## No repeated messages or trades
+
+- **Same direction twice:** a BUY while a long trade is already open on that symbol and timeframe (or a SELL while a short is open) is ignored. Once the trade has hit its stop or TP3, a new signal in the same direction is allowed. An opposite signal replaces the open trade.
+- **Cooldown:** set `"cooldown_bars": 4` in `config.json` to also ignore any signal on a series for that many candles after the previous one. The default is 0 (off).
+- **Each message is sent once.** Messages are written to `state.json` first and removed only after Telegram accepted them. If Telegram is down, they stay queued and go out in order on the next pass, so nothing is lost and nothing is resent. A restart or crash resumes from the queue.
+- **One copy only.** A second live copy using the same `state.json` would post everything twice, so the bot refuses to start (exit code 3) while another is running. `--dry-run`, `--replay` and `--test-telegram` don't take the lock and are safe next to the service.
+
+Two limits: if the process dies in the instant after Telegram delivered a message but before the file was updated, that single message can be sent again after the restart. And a second copy running from a different folder (its own `state.json`) is not detected.
+
 ## Differences from TradingView
 
 - TradingView computes from the chart's full history; the bot uses the last `history` candles (default 500). The supertrend band ratchets from its starting point, so the two can disagree for a while after a fresh start, and entries may differ slightly. Compare a few signals against the chart before relying on it.
 - Binance may refuse some regions (HTTP 451). If so, run the bot from another location or use BloFin.
 - A symbol the exchange does not list (delisted, or named differently on BloFin) is logged and retried after 1, 2, 4 ... minutes up to once an hour, so one bad symbol never blocks the rest. Check the log after the first run and remove any that keep failing.
 - If the bot is offline, it catches up on missed candles when it restarts and sends the messages in order, including late TP/stop updates.
-- A new signal replaces any open trade without a message for the old one.
+- An opposite signal replaces the open trade without a message for the old one.
 
 ## Tests
 

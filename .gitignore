@@ -7,3 +7,4 @@ signal-bot/state.json.tmp
 .env
 __pycache__/
 *.pyc
+signal-bot/*.lock

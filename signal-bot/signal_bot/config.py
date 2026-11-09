@@ -27,6 +27,7 @@ class BotConfig:
     timeframes: List[str] = field(default_factory=lambda: ["15m"])
     poll_seconds: int = 30
     history: int = 500
+    cooldown_bars: int = 0  # ignore new signals for this many candles after the previous one on the same series
     strategy: StrategyConfig = field(default_factory=StrategyConfig)
     leverage: Optional[Leverage] = field(default_factory=Leverage)  # 15x cross unless changed; null turns it off
 
@@ -70,6 +71,9 @@ def parse_config(raw: dict) -> BotConfig:
     except (ValueError, TypeError) as e:
         raise ConfigError(str(e))
 
+    cooldown = int(raw.get("cooldown_bars", 0))
+    if cooldown < 0:
+        raise ConfigError("cooldown_bars cannot be negative")
     history = int(raw.get("history", 500))
     if history < 100:
         raise ConfigError("history must be at least 100 candles (the indicators need warm-up)")
@@ -78,6 +82,7 @@ def parse_config(raw: dict) -> BotConfig:
         timeframes=[_tf(t) for t in raw.get("timeframes", ["15m"])],
         poll_seconds=max(10, int(raw.get("poll_seconds", 30))),
         history=history,
+        cooldown_bars=cooldown,
         strategy=strat,
         leverage=lev,
     )
