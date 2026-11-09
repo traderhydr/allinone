@@ -32,18 +32,19 @@ Three companion indicators (Pine v5) that combine the strongest part of eight co
 | | QQE long / short signals, Vix Fix bottoms, VWAP CCI signals | Advanced Matrix |
 | | Today's, tomorrow's and weekly CPR, R1-R3 / S1-S3 | Brahmastra |
 | `algo-structure.pine` | Swing and internal BOS / CHoCH, order blocks, equal highs / lows, sweeps, premium / discount | Price Action Concepts |
-| | Fair value gaps, previous day / week / month high and low | Mayfair |
+| | Fair value gaps (chart and higher timeframe), previous day / week / month high and low | Mayfair |
 | | Supply / demand zones, key swing levels | Neural Network |
 | | Volume profile with POC and value area (up / down split) | NOSTRADAMUS |
 | `algo-matrix.pine` | Matrix candle oscillator, CCI support / resistance lines, overbought / oversold dots, optional Vix Fix columns | Advanced Matrix |
 
-Not carried over: multi-timeframe FVG, harmonic / zigzag tools, and the per-asset presets and webhook JSON from GG-SHOT.
+Not carried over: harmonic / zigzag tools, and the per-asset presets and webhook JSON from GG-SHOT.
 
 ### Notes
 
 - Signal sensitivity follows Infinity Algo exactly: the supertrend band is `sensitivity x 2 x (high - low)`, so the default of 6 is very wide. Lower it for more signals.
 - Trade levels default to ATR multiples (1 / 2 / 3, stop 1.5). Switch **Level mode** to Percent to use fixed percentages instead.
 - When a bar touches both the stop and a target, the stop is counted first.
+- Higher-timeframe gaps (default 4H) use only completed bars, so they do not repaint; a gap shows up on the first chart bar after the higher-timeframe bar that completed it. The setting is ignored if it is not above the chart timeframe.
 - The volume profile covers the last N bars and is redrawn on the latest bar. Its value area defaults to 70% (NOSTRADAMUS used 100%, which highlights every row).
 - Divergence compares price pivots with oscillator pivots, so a label appears `Pivot lookback right` bars after the pivot (it is not repainted, just late).
 - QQE, Vix Fix and VWAP CCI signals sit at the bottom / top edge of the chart pane so they do not collide with the BUY / SELL labels. Vix Fix marks capitulation lows (long only), as in the original. VWAP CCI fires long when it crosses back above -200 and short when it crosses below +200. All three are on by default and can be switched off.

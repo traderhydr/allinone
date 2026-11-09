@@ -5,7 +5,7 @@ indicator("Algo Structure", overlay = true, max_labels_count = 500, max_lines_co
 //  ALGO STRUCTURE  (companion to algo-signals.pine)
 //  Market structure : Price Action Concepts (swing + internal BOS / CHoCH)
 //  Order blocks     : Price Action Concepts (volume-tagged, mitigated on close or wick)
-//  Fair value gaps  : Mayfair
+//  Fair value gaps  : Mayfair (chart timeframe and a higher timeframe)
 //  Liquidity        : Price Action Concepts (equal highs / lows, sweeps, premium / discount)
 //  Prior-period H/L : Mayfair (previous day / week / month)
 //  Supply / demand  : Neural Network (swing zones) + key swing levels as support / resistance
@@ -30,6 +30,8 @@ gFVG = "Fair value gaps"
 showFVG = input.bool(true, "Fair value gaps", group = gFVG)
 fvgMax  = input.int(8, "Gaps kept per side", minval = 1, maxval = 30, group = gFVG)
 fvgMin  = input.float(0.1, "Min gap size (x ATR50)", minval = 0, step = 0.05, group = gFVG)
+showHtf = input.bool(true, "Higher-timeframe gaps", group = gFVG)
+fvgTf   = input.timeframe("240", "Higher timeframe", group = gFVG)
 
 gLiq = "Liquidity"
 showEQ    = input.bool(true, "Equal highs / lows", group = gLiq)
@@ -184,6 +186,45 @@ if array.size(bearFVG) > 0
         if high > box.get_top(b)
             box.delete(b)
             array.remove(bearFVG, i)
+
+// ---------------------------------------------------------------- higher-timeframe fair value gaps
+// Gaps are read from the three bars before the one now forming on the higher timeframe, so they are
+// final when drawn and never repaint. A gap appears on the first chart bar of the next higher-timeframe bar.
+htfGaps() =>
+    a = ta.atr(50)
+    bullG = low[1] > high[3] and close[2] > high[3] and (low[1] - high[3]) > a[1] * fvgMin
+    bearG = high[1] < low[3] and close[2] < low[3] and (low[3] - high[1]) > a[1] * fvgMin
+    [bullG, bearG, low[1], high[3], low[3], high[1], time[3]]
+
+htfValid = timeframe.in_seconds(fvgTf) > timeframe.in_seconds()
+[hBull, hBear, hBullTop, hBullBot, hBearTop, hBearBot, hStart] = request.security(syminfo.tickerid, fvgTf, htfGaps(), lookahead = barmerge.lookahead_on)
+newHtfBar = ta.change(time(fvgTf)) != 0
+htfBullGap = showHtf and htfValid and newHtfBar and hBull
+htfBearGap = showHtf and htfValid and newHtfBar and hBear
+
+var box[] bullHTF = array.new_box()
+var box[] bearHTF = array.new_box()
+if htfBullGap
+    array.push(bullHTF, box.new(left = hStart, top = hBullTop, right = time, bottom = hBullBot, xloc = xloc.bar_time, border_color = color.new(bullC, 30), border_style = line.style_dashed, bgcolor = color.new(bullC, 90), extend = extend.right, text = "FVG " + fvgTf, text_color = bullC, text_size = size.small))
+    if array.size(bullHTF) > fvgMax
+        box.delete(array.shift(bullHTF))
+if htfBearGap
+    array.push(bearHTF, box.new(left = hStart, top = hBearTop, right = time, bottom = hBearBot, xloc = xloc.bar_time, border_color = color.new(bearC, 30), border_style = line.style_dashed, bgcolor = color.new(bearC, 90), extend = extend.right, text = "FVG " + fvgTf, text_color = bearC, text_size = size.small))
+    if array.size(bearHTF) > fvgMax
+        box.delete(array.shift(bearHTF))
+
+if array.size(bullHTF) > 0
+    for i = array.size(bullHTF) - 1 to 0
+        b = array.get(bullHTF, i)
+        if low < box.get_bottom(b)
+            box.delete(b)
+            array.remove(bullHTF, i)
+if array.size(bearHTF) > 0
+    for i = array.size(bearHTF) - 1 to 0
+        b = array.get(bearHTF, i)
+        if high > box.get_top(b)
+            box.delete(b)
+            array.remove(bearHTF, i)
 
 // ---------------------------------------------------------------- liquidity
 float eqPH = ta.pivothigh(high, liqLen, liqLen)
@@ -412,3 +453,5 @@ alertcondition(sweepHigh, "Sweep of highs", "Algo Structure: liquidity sweep abo
 alertcondition(sweepLow, "Sweep of lows", "Algo Structure: liquidity sweep below {{ticker}}")
 alertcondition(bullGap, "Bullish FVG", "Algo Structure: bullish FVG {{ticker}}")
 alertcondition(bearGap, "Bearish FVG", "Algo Structure: bearish FVG {{ticker}}")
+alertcondition(htfBullGap, "Bullish higher-timeframe FVG", "Algo Structure: bullish higher-timeframe FVG {{ticker}}")
+alertcondition(htfBearGap, "Bearish higher-timeframe FVG", "Algo Structure: bearish higher-timeframe FVG {{ticker}}")
