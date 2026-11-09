@@ -1,0 +1,249 @@
+{
+  "timeframes": [
+    "15m"
+  ],
+  "poll_seconds": 30,
+  "history": 500,
+  "leverage": {
+    "x": 15,
+    "mode": "cross",
+    "maintenance_pct": 0.5
+  },
+  "pairs": [
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "BTCUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "ETHUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "BNBUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "ADAUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "LTCUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "BCHUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "ARBUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "WOOUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "DOTUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "XRPUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "FILUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "NEARUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "1000SHIBUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "CRVUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "RUNEUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "1INCHUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "LDOUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "ZECUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "INJUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "KNCUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "GRTUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "APEUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "ZILUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "COTIUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "BELUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "ZRXUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "PEOPLEUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "IMXUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "C98USDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "APTUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "CTSIUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "JASMYUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "DYDXUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "BLURUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "DOGEUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "TRXUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "RAREUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "LQTYUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "ENAUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "SAGAUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "PYTHUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "EGLDUSDT"
+    },
+    {
+      "exchange": "binance",
+      "market": "futures",
+      "symbol": "API3USDT"
+    }
+  ],
+  "strategy": {
+    "sensitivity": 6.0,
+    "braid": true,
+    "braid_strength": 60,
+    "level_mode": "ATR",
+    "atr_len": 14,
+    "tp_atr": [
+      1,
+      2,
+      3
+    ],
+    "sl_atr": 1.5,
+    "tp_pct": [
+      1,
+      3,
+      5
+    ],
+    "sl_pct": 4.0,
+    "be_after_tp1": false
+  }
+}

@@ -127,6 +127,39 @@ class PassTests(unittest.TestCase):
         boom.candles = mock.Mock(side_effect=ExchangeError("down"))
         runner.run_pass(CFG, {}, lambda m: None, clients={("binance", None): boom})  # logs, does not raise
 
+    def test_failing_series_backs_off_and_recovers(self):
+        from signal_bot.exchanges import ExchangeError
+        bad = self.Client([])
+        bad.candles = mock.Mock(side_effect=ExchangeError("HTTP 400: Invalid symbol"))
+        clients, backoff, state = {("binance", None): bad}, {}, {}
+        runner.run_pass(CFG, state, lambda m: None, clients=clients, now_ms=0, backoff=backoff)
+        self.assertEqual(bad.candles.call_count, 1)
+        runner.run_pass(CFG, state, lambda m: None, clients=clients, now_ms=59_000, backoff=backoff)   # still waiting
+        self.assertEqual(bad.candles.call_count, 1)
+        runner.run_pass(CFG, state, lambda m: None, clients=clients, now_ms=60_000, backoff=backoff)   # 1 min: retry
+        self.assertEqual(bad.candles.call_count, 2)
+        self.assertEqual(list(backoff.values())[0][0], 2)                                              # next wait doubles
+        runner.run_pass(CFG, state, lambda m: None, clients=clients, now_ms=60_000 + 119_000, backoff=backoff)
+        self.assertEqual(bad.candles.call_count, 2)
+        bad.candles = mock.Mock(return_value=flat(100))                                                # exchange recovers
+        runner.run_pass(CFG, state, lambda m: None, clients=clients, now_ms=60_000 + 120_000, backoff=backoff)
+        self.assertEqual(backoff, {})
+
+    def test_one_bad_symbol_does_not_block_the_others(self):
+        from signal_bot.exchanges import ExchangeError
+        cfg = parse_config({"pairs": [{"exchange": "binance", "symbol": "DEADUSDT"}, {"exchange": "binance", "symbol": "BTCUSDT"}]})
+        good = flat(100)
+
+        class Mixed:
+            label = "Fake"
+            def candles(self, symbol, tf, limit):
+                if symbol == "DEADUSDT":
+                    raise ExchangeError("HTTP 400")
+                return good
+        state = {}
+        runner.run_pass(cfg, state, lambda m: None, clients={("binance", None): Mixed()}, now_ms=0, backoff={})
+        self.assertEqual([k for k in state], ["binance:-:BTCUSDT:15m"])
+
     def test_state_roundtrip_and_corrupt_file(self):
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, "state.json")

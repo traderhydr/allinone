@@ -100,8 +100,11 @@ def is_due(slot: Optional[Dict], timeframe: str, now_ms: int) -> bool:
 
 
 def run_pass(cfg: BotConfig, state: Dict, send: Callable[[str], None], replay: int = 0, clients: Optional[Dict] = None,
-             now_ms: Optional[int] = None) -> int:
+             now_ms: Optional[int] = None, backoff: Optional[Dict] = None) -> int:
+    """One sweep over every pair. A series that fails (unknown or delisted symbol, exchange outage) is
+    retried after 1, 2, 4 ... minutes, up to 1 hour, instead of on every poll."""
     clients = clients if clients is not None else {}
+    backoff = backoff if backoff is not None else {}
     now_ms = int(time.time() * 1000) if now_ms is None else now_ms
     sent = 0
     for pair in cfg.pairs:
@@ -113,11 +116,17 @@ def run_pass(cfg: BotConfig, state: Dict, send: Callable[[str], None], replay: i
             key = f"{pair.exchange}:{pair.market or '-'}:{pair.symbol}:{tf}"
             if not replay and not is_due(state.get(key), tf, now_ms):
                 continue
+            if key in backoff and now_ms < backoff[key][1]:
+                continue
             try:
                 candles = client.candles(pair.symbol, tf, cfg.history)
                 sent += process_series(key, pair.symbol, tf, client.label, candles, state, cfg, send, replay)
+                backoff.pop(key, None)
             except (ExchangeError, NotifyError) as e:
-                log.error("%s: %s", key, e)
+                fails = backoff.get(key, (0, 0))[0] + 1
+                delay = min(60 * 2 ** (fails - 1), 3600)
+                backoff[key] = (fails, now_ms + delay * 1000)
+                log.error("%s: %s (retrying in %ds)", key, e, delay)
     return sent
 
 
@@ -153,10 +162,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     state_path = args.state or os.path.join(os.path.dirname(os.path.abspath(args.config)), "state.json")
     state = {} if args.replay else load_state(state_path)
     clients: Dict = {}
+    backoff: Dict = {}
     log.info("watching %d pair(s), every %ds%s", len(cfg.pairs), cfg.poll_seconds, " (dry run)" if args.dry_run else "")
     try:
         while True:
-            run_pass(cfg, state, notifier.send, args.replay, clients)
+            run_pass(cfg, state, notifier.send, args.replay, clients, backoff=backoff)
             if not args.replay:
                 save_state(state_path, state)
             if args.once or args.replay:

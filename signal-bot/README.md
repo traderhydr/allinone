@@ -46,7 +46,7 @@ This is **display only**. The bot never sets leverage or margin mode on the exch
    cp config.example.json config.json
    ```
 
-   Edit `config.json`: pairs, timeframes and strategy settings. Symbols are written `BTC-USDT` for both exchanges. For Binance set `"market": "futures"` or `"spot"`.
+   `config.futures.example.json` is a ready-made list of 43 Binance USDT-futures symbols; copy that one instead if you want them all. Edit `config.json`: pairs, timeframes and strategy settings. Symbols are written `BTC-USDT` for both exchanges. For Binance set `"market": "futures"` or `"spot"`.
 
 ## Try it, then run it
 
@@ -90,6 +90,7 @@ WantedBy=multi-user.target
 
 - TradingView computes from the chart's full history; the bot uses the last `history` candles (default 500). The supertrend band ratchets from its starting point, so the two can disagree for a while after a fresh start, and entries may differ slightly. Compare a few signals against the chart before relying on it.
 - Binance may refuse some regions (HTTP 451). If so, run the bot from another location or use BloFin.
+- A symbol the exchange does not list (delisted, or named differently on BloFin) is logged and retried after 1, 2, 4 ... minutes up to once an hour, so one bad symbol never blocks the rest. Check the log after the first run and remove any that keep failing.
 - If the bot is offline, it catches up on missed candles when it restarts and sends the messages in order, including late TP/stop updates.
 - A new signal replaces any open trade without a message for the old one.
 
