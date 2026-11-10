@@ -12,6 +12,12 @@ class Leverage:
     maintenance_pct: float = 0.5  # approximate maintenance margin rate, % of position value
 
     @property
+    def display(self) -> str:
+        """Channel format: 'Cross (15x)'."""
+        x = int(self.x) if float(self.x).is_integer() else self.x
+        return f"{self.mode.capitalize()} ({x}x)"
+
+    @property
     def label(self) -> str:
         x = int(self.x) if float(self.x).is_integer() else self.x
         return f"{x}x {self.mode}"

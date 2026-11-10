@@ -40,7 +40,7 @@ class ProcessTests(unittest.TestCase):
         candles = series([(100.5, 99.5), (102.5, 99), (101, 96)])  # signal bar, TP1 bar, stop bar
         out = self.run_series(candles, state, buy_at={100})
         self.assertEqual(len(out), 3)
-        self.assertIn("BUY", out[0])
+        self.assertIn("LONG", out[0])
         self.assertIn("TP1 hit", out[1])
         self.assertIn("Stop hit", out[2])
         self.assertIsNone(state["k"]["trade"])
@@ -49,7 +49,7 @@ class ProcessTests(unittest.TestCase):
         state = {}
         self.run_series(flat(100), state)
         out = self.run_series(series([(100.5, 99.5), (102.5, 99)]), state, buy_at={100})
-        self.assertIn("15x cross", out[0])
+        self.assertIn("Leverage: Cross (15x)", out[0])
         self.assertIn("ROE", out[1])
 
     def test_no_duplicates_on_second_pass(self):
@@ -63,7 +63,7 @@ class ProcessTests(unittest.TestCase):
         state = {}
         self.run_series(flat(100), state)
         out = self.run_series(series([(100.5, 99.5), (102.5, 99), (104.5, 100), (106.5, 100)]), state, buy_at={100})
-        self.assertEqual([("BUY" in m, "TP1 hit" in m, "TP2 hit" in m, "TP3 hit" in m) for m in out],
+        self.assertEqual([("LONG" in m, "TP1 hit" in m, "TP2 hit" in m, "TP3 hit" in m) for m in out],
                          [(True, False, False, False), (False, True, False, False), (False, False, True, False), (False, False, False, True)])
 
     def test_new_signal_replaces_open_trade_and_short_levels(self):
@@ -71,7 +71,7 @@ class ProcessTests(unittest.TestCase):
         self.run_series(flat(100), state)
         out = self.run_series(series([(100.5, 99.5), (100.5, 99.5)]), state, buy_at={100}, sell_at={101})
         self.assertEqual(len(out), 2)
-        self.assertIn("SELL", out[1])
+        self.assertIn("SHORT", out[1])
         self.assertEqual(state["k"]["trade"]["dir"], -1)
 
     def test_replay_reports_recent_signals(self):
@@ -251,7 +251,7 @@ class CliTests(unittest.TestCase):
                     redirect_stdout(buf):
                 rc = runner.main(["--config", path, "--dry-run", "--replay", "5"])
             self.assertEqual(rc, 0)
-            self.assertIn("BUY", buf.getvalue())
+            self.assertIn("LONG", buf.getvalue())
             self.assertFalse(os.path.exists(os.path.join(d, "state.json")))
 
     def test_missing_config_exits_with_code_2(self):

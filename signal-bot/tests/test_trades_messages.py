@@ -4,7 +4,7 @@ from signal_bot import trades
 from signal_bot.exchanges import Candle
 from signal_bot.indicators import StrategyConfig, levels_at
 from signal_bot.leverage import Leverage, est_liquidation, parse_leverage, roe_pct, stop_beyond_liquidation
-from signal_bot.messages import event_message, fmt_price, signal_message
+from signal_bot.messages import event_message, fmt_price, pair_label, signal_message
 
 
 def candle(ts, high, low):
@@ -52,20 +52,55 @@ class MessageTests(unittest.TestCase):
         self.assertEqual(fmt_price(100.0), "100")
         self.assertEqual(fmt_price(0.00001234), "0.00001234")
 
-    def test_signal_message_contents_and_escaping(self):
-        text = signal_message("<b>X</b>", "15m", "Binance Futures", long_trade())
-        self.assertIn("BUY", text)
-        self.assertIn("&lt;b&gt;X&lt;/b&gt;", text)
-        self.assertNotIn("<b>X</b>", text)
-        for needle in ("Entry: <code>100</code>", "Stop: <code>97</code> (-3.00%)", "TP1: <code>102</code> (+2.00%)", "TP3: <code>106</code> (+6.00%)"):
-            self.assertIn(needle, text)
-        self.assertNotIn("Leverage", text)  # off unless a Leverage is passed
+    def test_pair_label(self):
+        self.assertEqual(pair_label("ARBUSDT"), "ARB/USDT")
+        self.assertEqual(pair_label("ARB-USDT"), "ARB/USDT")
+        self.assertEqual(pair_label("1000SHIBUSDT"), "1000SHIB/USDT")
+        self.assertEqual(pair_label("btcfdusd"), "BTC/FDUSD")
+        self.assertEqual(pair_label("ETHBUSD"), "ETH/BUSD")
+        self.assertEqual(pair_label("USDCUSDT"), "USDC/USDT")
+        self.assertEqual(pair_label("eth/usdc"), "ETH/USDC")
+        self.assertEqual(pair_label("WEIRD"), "WEIRD")
+
+    def test_signal_message_matches_the_channel_format_exactly(self):
+        short = trades.open_trade(levels_at(0.16189, -1, 0.0012, StrategyConfig()), entry_ts=10)
+        text = signal_message("ARBUSDT", "15m", "Binance Futures", short, Leverage(10, "cross", 0.5))
+        self.assertEqual(text, "\n".join([
+            "#ARB/USDT",
+            "SHORT",
+            "Entry Targets:",
+            "1) 0.16189",
+            "Take-Profit Targets:",
+            "1) 0.16069",
+            "2) 0.15949",
+            "3) 0.15829",
+            "Stop Targets:",
+            "1) 0.16369",
+            "Leverage: Cross (10x)",
+        ]))
+
+    def test_long_signal_and_no_leverage_line_when_off(self):
+        text = signal_message("BTC-USDT", "15m", "BloFin", long_trade())
+        self.assertEqual(text.splitlines()[:5], ["#BTC/USDT", "LONG", "Entry Targets:", "1) 100", "Take-Profit Targets:"])
+        self.assertEqual(text.splitlines()[5:], ["1) 102", "2) 104", "3) 106", "Stop Targets:", "1) 97"])
+        self.assertNotIn("Leverage", text)
+
+    def test_nothing_extra_in_the_signal(self):
+        text = signal_message("ARBUSDT", "15m", "Binance Futures", long_trade(), Leverage())
+        for banned in ("15m", "Binance", "ROE", "liquidation", "financial advice", "<b>", "<code>"):
+            self.assertNotIn(banned, text)
+
+    def test_symbol_is_escaped(self):
+        text = signal_message("<b>X</b>", "15m", "v", long_trade())
+        self.assertNotIn("<b>", text)
+        self.assertIn("&lt;B&gt;X&lt;/B&gt;", text)
 
     def test_event_messages(self):
         t = long_trade()
-        self.assertIn("TP2 hit", event_message("BTC-USDT", "15m", "BloFin", t, "tp2"))
-        self.assertIn("Stop hit", event_message("BTC-USDT", "15m", "BloFin", t, "sl"))
-        self.assertIn("<code>100</code>", event_message("BTC-USDT", "15m", "BloFin", t, "sl", stop=100.0))
+        tp = event_message("BTCUSDT", "15m", "BloFin", t, "tp2")
+        self.assertEqual(tp, "#BTC/USDT\n🎯 TP2 hit (long)\nTarget: 104 (+4.00%)")
+        self.assertEqual(event_message("BTCUSDT", "15m", "BloFin", t, "sl"), "#BTC/USDT\n🛑 Stop hit (long)\nStop: 97 (-3.00%)")
+        self.assertIn("Stop: 100 (", event_message("BTCUSDT", "15m", "BloFin", t, "sl", stop=100.0))
 
 
 class LeverageTests(unittest.TestCase):
@@ -86,16 +121,14 @@ class LeverageTests(unittest.TestCase):
         self.assertTrue(stop_beyond_liquidation(-1, 107.0, sliq))
         self.assertFalse(stop_beyond_liquidation(-1, 103.0, sliq))
 
-    def test_signal_message_with_leverage(self):
-        text = signal_message("BTC-USDT", "15m", "BloFin", long_trade(), self.LEV)
-        for needle in ("Leverage: <b>15x cross</b>", "Stop: <code>97</code> (-3.00% · -45.0% ROE)",
-                       "TP1: <code>102</code> (+2.00% · +30.0% ROE)", "Est. liquidation: <code>93.8333</code>"):
-            self.assertIn(needle, text)
-        self.assertNotIn("beyond", text)
+    def test_display(self):
+        self.assertEqual(Leverage(15, "cross").display, "Cross (15x)")
+        self.assertEqual(Leverage(10, "isolated").display, "Isolated (10x)")
+        self.assertEqual(Leverage(2.5, "cross").display, "Cross (2.5x)")
 
-    def test_warns_when_stop_is_past_liquidation(self):
-        t = trades.open_trade(levels_at(100.0, 1, 5.0, StrategyConfig()), entry_ts=10)  # stop 7.5 away, liq about 6.2 away
-        self.assertIn("stop is beyond the estimated liquidation", signal_message("X", "15m", "v", t, self.LEV))
+    def test_signal_message_shows_leverage_line_last(self):
+        text = signal_message("BTCUSDT", "15m", "BloFin", long_trade(), self.LEV)
+        self.assertEqual(text.splitlines()[-1], "Leverage: Cross (15x)")
 
     def test_event_messages_with_leverage(self):
         self.assertIn("+30.0% ROE", event_message("X", "15m", "v", long_trade(), "tp1", lev=self.LEV))

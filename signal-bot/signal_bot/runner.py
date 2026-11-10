@@ -18,6 +18,7 @@ from . import trades
 from .config import BotConfig, ConfigError, Pair, load_config
 from .exchanges import TIMEFRAME_MS, Candle, ExchangeError, make_client
 from .indicators import analyse, levels_at
+from .leverage import est_liquidation, stop_beyond_liquidation
 from .messages import event_message, signal_message
 from .notifier import ConsoleNotifier, NotifyError, TelegramNotifier
 
@@ -135,6 +136,11 @@ def process_series(
                     slot["trade"] = trades.open_trade(lv, candle.ts)
                     slot["last_signal_ts"] = candle.ts
                     outbox.append(signal_message(symbol, timeframe, venue, slot["trade"], cfg.leverage))
+                    if cfg.leverage:
+                        liq = est_liquidation(direction, lv.entry, cfg.leverage)
+                        if stop_beyond_liquidation(direction, lv.sl, liq):
+                            log.warning("%s: stop %.8g is beyond the estimated liquidation %.8g at %s (entry %.8g)",
+                                        key, lv.sl, liq, cfg.leverage.display, lv.entry)
         slot["last_ts"] = candle.ts
     if save:
         save()  # state and queued messages hit the disk before anything is sent

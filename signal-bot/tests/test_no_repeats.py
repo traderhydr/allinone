@@ -6,6 +6,7 @@ import unittest
 from unittest import mock
 
 from signal_bot import runner
+from signal_bot.indicators import Analysis  # noqa: F401
 from signal_bot.config import parse_config
 from signal_bot.notifier import NotifyError
 from tests.helpers import flat
@@ -43,31 +44,43 @@ class SameDirectionTests(unittest.TestCase):
     def test_second_buy_while_long_is_open_is_ignored(self):
         state, out = started(), []
         run(series([(100.5, 99.5), (100.5, 99.5), (100.5, 99.5)]), state, out.append, buy_at={100, 102})
-        self.assertEqual(sum("BUY" in m for m in out), 1)
+        self.assertEqual(sum("LONG" in m for m in out), 1)
         self.assertEqual(state[KEY]["trade"]["entry_ts"], series([(0, 0)] * 1)[100].ts)  # still the first trade
 
     def test_same_direction_is_allowed_again_once_the_trade_closed(self):
         state, out = started(), []
         # BUY, stop-out candle, BUY again -> two trades are legitimate
         run(series([(100.5, 99.5), (101, 96), (100.5, 99.5)]), state, out.append, buy_at={100, 102})
-        self.assertEqual(sum("BUY" in m for m in out), 2)
+        self.assertEqual(sum("LONG" in m for m in out), 2)
 
     def test_opposite_signal_still_reverses(self):
         state, out = started(), []
         run(series([(100.5, 99.5), (100.5, 99.5)]), state, out.append, buy_at={100}, sell_at={101})
-        self.assertEqual([("BUY" in m, "SELL" in m) for m in out], [(True, False), (False, True)])
+        self.assertEqual([("LONG" in m, "SHORT" in m) for m in out], [(True, False), (False, True)])
 
     def test_cooldown_blocks_signals_right_after_the_previous_one(self):
         cfg = parse_config({"pairs": [{"exchange": "binance", "symbol": "BTC-USDT"}], "cooldown_bars": 3})
         state, out = started(), []
         # BUY at 100, opposite SELL at 101 (inside cooldown, ignored), SELL at 104 (3 bars later, allowed)
         run(series([(100.5, 99.5)] * 5), state, out.append, buy_at={100}, sell_at={101, 104}, cfg=cfg)
-        self.assertEqual([("BUY" in m, "SELL" in m) for m in out], [(True, False), (False, True)])
+        self.assertEqual([("LONG" in m, "SHORT" in m) for m in out], [(True, False), (False, True)])
 
     def test_cooldown_validation(self):
         from signal_bot.config import ConfigError
         with self.assertRaises(ConfigError):
             parse_config({"pairs": [{"exchange": "binance", "symbol": "X"}], "cooldown_bars": -1})
+
+
+class LiquidationLogTests(unittest.TestCase):
+    def test_stop_beyond_liquidation_is_logged_but_not_added_to_the_message(self):
+        def wide_atr(candles, c):                      # ATR 5 on price 100: stop 7.5 away, liquidation about 6.2 away
+            n = len(candles)
+            return Analysis([i == 100 for i in range(n)], [False] * n, [5.0] * n)
+        state, out = started(), []
+        with mock.patch.object(runner, "analyse", wide_atr), self.assertLogs("signal_bot", "WARNING") as logs:
+            runner.process_series(KEY, "BTCUSDT", "15m", "v", series([(100.5, 99.5)]), state, CFG, out.append)
+        self.assertIn("beyond the estimated liquidation", logs.output[0])
+        self.assertNotIn("liquidation", out[0])
 
 
 class DeliveryTests(unittest.TestCase):
@@ -88,7 +101,7 @@ class DeliveryTests(unittest.TestCase):
         with mock.patch.object(runner, "analyse", fake_analyse_factory({100})):
             runner.run_pass(cfg_pairs, state, sender, clients={("binance", None): client}, now_ms=0, backoff={})
         texts = sender.delivered
-        self.assertEqual([("BUY" in m, "TP1 hit" in m, "TP2 hit" in m) for m in texts],
+        self.assertEqual([("LONG" in m, "TP1 hit" in m, "TP2 hit" in m) for m in texts],
                          [(True, False, False), (False, True, False), (False, False, True)])
         self.assertEqual(state[key]["outbox"], [])
         with mock.patch.object(runner, "analyse", fake_analyse_factory({100})):
@@ -126,7 +139,7 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(len(restarted[KEY]["outbox"]), 1)
         runner.flush_outbox(restarted[KEY], delivered.append)
         self.assertEqual(len(delivered), 2)                              # BUY once, TP1 once
-        self.assertEqual(sum("BUY" in m for m in delivered), 1)
+        self.assertEqual(sum("LONG" in m for m in delivered), 1)
 
     def test_nothing_is_lost_when_telegram_fails_on_a_stop_message(self):
         state = started()

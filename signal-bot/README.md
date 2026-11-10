@@ -2,7 +2,21 @@
 
 Pulls candles from **Binance** (spot or USD-M futures) and **BloFin** (perpetual swaps), runs the same signal engine as `algo-signals.pine`, and posts to your **Telegram channel**:
 
-- a **BUY / SELL** message with entry, stop and TP1-TP3 when a new signal appears
+- a signal message in this layout when a new signal appears:
+
+  ```
+  #ARB/USDT
+  SHORT
+  Entry Targets:
+  1) 0.16189
+  Take-Profit Targets:
+  1) 0.16069
+  2) 0.15949
+  3) 0.15829
+  Stop Targets:
+  1) 0.16369
+  Leverage: Cross (15x)
+  ```
 - a follow-up when a target or the stop is hit
 
 Pine Script cannot call exchanges or Telegram, so this runs as a small separate program (Python 3.9+, standard library only, nothing to install).
@@ -17,7 +31,7 @@ Signals are computed only on **closed** candles, so a message never appears and 
 
 ## Leverage (15x cross by default)
 
-Every message shows the leverage, the **return on margin** (ROE) at each target and at the stop, and an **estimated liquidation price**. A warning appears when the stop sits beyond that estimate. Set it in `config.json`:
+The signal message ends with a `Leverage: Cross (15x)` line, and the target / stop follow-up messages show the **return on margin** (ROE) at that price. The bot also estimates the liquidation price and writes a warning to its log (not to the channel) when a signal's stop is beyond it: `journalctl -u signal-bot | grep liquidation`. Set the leverage in `config.json`:
 
 ```json
 "leverage": {"x": 15, "mode": "cross", "maintenance_pct": 0.5}
