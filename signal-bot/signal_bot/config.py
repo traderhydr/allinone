@@ -28,6 +28,7 @@ class BotConfig:
     poll_seconds: int = 30
     history: int = 500
     follow_ups: bool = False  # also post 'TP hit' / 'Stop hit' messages; off by default (auto-trading bots read the channel)
+    max_signal_age_bars: int = 1  # never post a signal more than this many candles old (e.g. after downtime)
     cooldown_bars: int = 0  # ignore new signals for this many candles after the previous one on the same series
     strategy: StrategyConfig = field(default_factory=StrategyConfig)
     leverage: Optional[Leverage] = field(default_factory=Leverage)  # 15x cross unless changed; null turns it off
@@ -75,6 +76,9 @@ def parse_config(raw: dict) -> BotConfig:
     follow_ups = raw.get("follow_ups", False)
     if not isinstance(follow_ups, bool):
         raise ConfigError("follow_ups must be true or false")
+    max_age = int(raw.get("max_signal_age_bars", 1))
+    if max_age < 0:
+        raise ConfigError("max_signal_age_bars cannot be negative")
     cooldown = int(raw.get("cooldown_bars", 0))
     if cooldown < 0:
         raise ConfigError("cooldown_bars cannot be negative")
@@ -87,6 +91,7 @@ def parse_config(raw: dict) -> BotConfig:
         poll_seconds=max(10, int(raw.get("poll_seconds", 30))),
         history=history,
         follow_ups=follow_ups,
+        max_signal_age_bars=max_age,
         cooldown_bars=cooldown,
         strategy=strat,
         leverage=lev,

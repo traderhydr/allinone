@@ -59,12 +59,34 @@ def acquire_lock(path: str):
 
 
 # ---------------------------------------------------------------- core
-def flush_outbox(slot: Dict, send: Callable[[str], None], save: Optional[Callable[[], None]] = None) -> int:
+GRACE_MS = 60_000
+
+
+def _text(item) -> str:
+    return item if isinstance(item, str) else item["text"]  # plain strings come from older state files
+
+
+def flush_outbox(slot: Dict, send: Callable[[str], None], save: Optional[Callable[[], None]] = None,
+                 now_ms: Optional[int] = None, max_age_ms: Optional[int] = None) -> int:
     """Send queued messages oldest first. A message leaves the queue (and the queue is saved) only after it
-    was delivered, so a failure keeps it for the next pass and a delivered message is never sent again."""
+    was delivered, so a failure keeps it for the next pass and a delivered message is never sent again.
+
+    With `now_ms` and `max_age_ms`, a queued *signal* older than that is dropped instead of sent (the market
+    has moved; an auto-trading bot reading the channel would enter at a stale price), and the trade that was
+    opened for it is forgotten. Target / stop messages are never dropped."""
     sent = 0
     while slot.get("outbox"):
-        send(slot["outbox"][0])  # raises on failure: the message stays queued
+        item = slot["outbox"][0]
+        if (now_ms is not None and max_age_ms is not None and isinstance(item, dict) and item.get("signal")
+                and now_ms - item["ts"] > max_age_ms):
+            log.warning("dropping a queued signal that is now too old to post")
+            slot["outbox"].pop(0)
+            if slot.get("trade") and slot["trade"]["entry_ts"] == item["ts"]:
+                slot["trade"] = None
+            if save:
+                save()
+            continue
+        send(_text(item))  # raises on failure: the message stays queued
         slot["outbox"].pop(0)
         if save:
             save()
@@ -111,6 +133,7 @@ def process_series(
     analysis = analyse(candles, cfg.strategy)
     outbox = slot.setdefault("outbox", [])
     tf_ms = TIMEFRAME_MS[timeframe]
+    latest_ts = candles[-1].ts
     for i, candle in enumerate(candles):
         if candle.ts <= slot["last_ts"]:
             continue
@@ -120,14 +143,18 @@ def process_series(
             for ev in events:  # trade state is always tracked (repeat protection needs it); text only if enabled
                 if cfg.follow_ups:
                     stop = trade["entry"] if (ev == "sl" and cfg.strategy.be_after_tp1 and trade["hit"][0]) else None
-                    outbox.append(event_message(symbol, timeframe, venue, trade, ev, stop, cfg.leverage))
+                    outbox.append({"text": event_message(symbol, timeframe, venue, trade, ev, stop, cfg.leverage),
+                                   "ts": candle.ts, "signal": False})
             if trades.is_finished(events):
                 slot["trade"] = None
         if analysis.buy[i] or analysis.sell[i]:
             direction = 1 if analysis.buy[i] else -1
             open_trade = slot.get("trade")
             last_sig = slot.get("last_signal_ts")
-            if open_trade and open_trade["dir"] == direction:
+            if latest_ts - candle.ts > cfg.max_signal_age_bars * tf_ms:
+                log.warning("%s: skipping a %s signal from %d candle(s) ago (older than max_signal_age_bars=%d)", key,
+                            "buy" if direction == 1 else "sell", (latest_ts - candle.ts) // tf_ms, cfg.max_signal_age_bars)
+            elif open_trade and open_trade["dir"] == direction:
                 log.debug("%s: ignoring repeat %s signal, a trade is already open", key, "buy" if direction == 1 else "sell")
             elif last_sig is not None and candle.ts - last_sig < cfg.cooldown_bars * tf_ms:
                 log.debug("%s: ignoring signal inside the %d-bar cooldown", key, cfg.cooldown_bars)
@@ -136,7 +163,8 @@ def process_series(
                 if lv.entry == lv.entry and lv.sl == lv.sl:  # skip if ATR was not ready (NaN)
                     slot["trade"] = trades.open_trade(lv, candle.ts)
                     slot["last_signal_ts"] = candle.ts
-                    outbox.append(signal_message(symbol, timeframe, venue, slot["trade"], cfg.leverage))
+                    outbox.append({"text": signal_message(symbol, timeframe, venue, slot["trade"], cfg.leverage),
+                                   "ts": candle.ts, "signal": True})
                     if cfg.leverage:
                         liq = est_liquidation(direction, lv.entry, cfg.leverage)
                         if stop_beyond_liquidation(direction, lv.sl, liq):
@@ -145,7 +173,8 @@ def process_series(
         slot["last_ts"] = candle.ts
     if save:
         save()  # state and queued messages hit the disk before anything is sent
-    return flush_outbox(slot, send, save)
+    close_of_latest = latest_ts + tf_ms
+    return flush_outbox(slot, send, save, close_of_latest, (cfg.max_signal_age_bars + 1) * tf_ms + GRACE_MS)
 
 
 def is_due(slot: Optional[Dict], timeframe: str, now_ms: int) -> bool:
@@ -174,7 +203,7 @@ def run_pass(cfg: BotConfig, state: Dict, send: Callable[[str], None], replay: i
             slot = state.get(key)
             if slot and slot.get("outbox") and not replay:  # messages left over from a failed or interrupted send
                 try:
-                    sent += flush_outbox(slot, send, save)
+                    sent += flush_outbox(slot, send, save, now_ms, (cfg.max_signal_age_bars + 1) * TIMEFRAME_MS[tf] + GRACE_MS)
                 except NotifyError as e:
                     log.error("%s: %s (%d message(s) kept queued)", key, e, len(slot["outbox"]))
                     continue  # keep order: do not queue newer messages behind a stuck one

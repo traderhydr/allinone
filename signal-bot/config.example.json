@@ -6,6 +6,7 @@
   "history": 500,
   "cooldown_bars": 0,
   "follow_ups": false,
+  "max_signal_age_bars": 1,
   "leverage": {
     "x": 15,
     "mode": "cross",

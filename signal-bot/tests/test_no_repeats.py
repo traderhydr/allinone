@@ -12,7 +12,7 @@ from signal_bot.notifier import NotifyError
 from tests.helpers import flat
 from tests.test_runner_notifier import fake_analyse_factory, series
 
-CFG = parse_config({"pairs": [{"exchange": "binance", "symbol": "BTC-USDT"}], "timeframes": ["15m"], "follow_ups": True})
+CFG = parse_config({"pairs": [{"exchange": "binance", "symbol": "BTC-USDT"}], "timeframes": ["15m"], "follow_ups": True, "max_signal_age_bars": 100})
 KEY = "k"
 
 
@@ -59,7 +59,7 @@ class SameDirectionTests(unittest.TestCase):
         self.assertEqual([("LONG" in m, "SHORT" in m) for m in out], [(True, False), (False, True)])
 
     def test_cooldown_blocks_signals_right_after_the_previous_one(self):
-        cfg = parse_config({"pairs": [{"exchange": "binance", "symbol": "BTC-USDT"}], "cooldown_bars": 3})
+        cfg = parse_config({"pairs": [{"exchange": "binance", "symbol": "BTC-USDT"}], "cooldown_bars": 3, "max_signal_age_bars": 100})
         state, out = started(), []
         # BUY at 100, opposite SELL at 101 (inside cooldown, ignored), SELL at 104 (3 bars later, allowed)
         run(series([(100.5, 99.5)] * 5), state, out.append, buy_at={100}, sell_at={101, 104}, cfg=cfg)
@@ -71,8 +71,68 @@ class SameDirectionTests(unittest.TestCase):
             parse_config({"pairs": [{"exchange": "binance", "symbol": "X"}], "cooldown_bars": -1})
 
 
+class StaleSignalTests(unittest.TestCase):
+    """After downtime the bot must not post old signals: an auto-trading bot reading the channel would
+    enter at a price from hours ago."""
+    DEFAULT = parse_config({"pairs": [{"exchange": "binance", "symbol": "BTC-USDT"}], "follow_ups": True})  # max age 1 bar
+
+    def test_default_is_one_candle(self):
+        self.assertEqual(self.DEFAULT.max_signal_age_bars, 1)
+
+    def test_old_signals_are_skipped_but_the_newest_is_posted(self):
+        state, out = started(), []
+        # bot was down for 6 candles: signals on candles 100 (5 bars old) and 103 (2 bars old); 105 is the newest
+        run(series([(100.5, 99.5)] * 6), state, out.append, buy_at={100}, sell_at={103}, cfg=self.DEFAULT)
+        self.assertEqual(len(out), 0)                        # both are older than one candle
+        out = []
+        state = started()
+        run(series([(100.5, 99.5)] * 6), state, out.append, buy_at={100, 105}, cfg=self.DEFAULT)
+        self.assertEqual(len(out), 1)                        # only the newest candle's signal
+        self.assertEqual(state[KEY]["trade"]["entry_ts"], series([(0, 0)] * 6)[105].ts)
+
+    def test_one_candle_old_is_still_allowed(self):
+        state, out = started(), []
+        run(series([(100.5, 99.5), (100.5, 99.5)]), state, out.append, buy_at={100}, cfg=self.DEFAULT)
+        self.assertEqual(len(out), 1)
+
+    def test_stale_signal_does_not_open_a_phantom_trade(self):
+        state, out = started(), []
+        run(series([(100.5, 99.5)] * 5), state, out.append, buy_at={101}, cfg=self.DEFAULT)
+        self.assertIsNone(state[KEY]["trade"])               # nothing was posted, so nothing is tracked
+        run(series([(100.5, 99.5)] * 5), state, out.append, buy_at={101}, cfg=self.DEFAULT)
+        self.assertEqual(out, [])
+
+    def test_a_removed_symbol_that_comes_back_does_not_replay_old_signals(self):
+        old = {"k": {"last_ts": 0, "trade": None}}           # state left over from long ago
+        out = []
+        run(series([(100.5, 99.5)] * 3), old, out.append, buy_at={30, 60, 90}, cfg=self.DEFAULT)
+        self.assertEqual(out, [])
+
+    def test_queued_signal_that_became_stale_is_dropped_and_its_trade_forgotten(self):
+        slot = {"trade": {"entry_ts": 1000, "dir": 1}, "outbox": [
+            {"text": "OLD SIGNAL", "ts": 1000, "signal": True},
+            {"text": "a target message", "ts": 1000, "signal": False},
+        ]}
+        sent = []
+        n = runner.flush_outbox(slot, sent.append, None, now_ms=10_000_000, max_age_ms=1_000_000)
+        self.assertEqual(sent, ["a target message"])         # events are never dropped
+        self.assertIsNone(slot["trade"])
+        self.assertEqual(n, 1)
+
+    def test_fresh_queued_signal_is_sent_and_old_string_items_still_work(self):
+        slot = {"outbox": [{"text": "FRESH", "ts": 9_500_000, "signal": True}, "legacy text"]}
+        sent = []
+        runner.flush_outbox(slot, sent.append, None, now_ms=10_000_000, max_age_ms=1_000_000)
+        self.assertEqual(sent, ["FRESH", "legacy text"])
+
+    def test_config_validation(self):
+        from signal_bot.config import ConfigError
+        with self.assertRaises(ConfigError):
+            parse_config({"pairs": [{"exchange": "binance", "symbol": "X"}], "max_signal_age_bars": -1})
+
+
 class FollowUpSwitchTests(unittest.TestCase):
-    OFF = parse_config({"pairs": [{"exchange": "binance", "symbol": "BTC-USDT"}]})  # follow_ups defaults to off
+    OFF = parse_config({"pairs": [{"exchange": "binance", "symbol": "BTC-USDT"}], "max_signal_age_bars": 100})  # follow_ups defaults to off
 
     def test_only_the_signal_is_posted_when_follow_ups_are_off(self):
         state, out = started(), []

@@ -10,7 +10,7 @@ from signal_bot.indicators import Analysis
 from signal_bot.notifier import NotifyError, TelegramNotifier
 from tests.helpers import TF, flat
 
-CFG = parse_config({"pairs": [{"exchange": "binance", "symbol": "BTC-USDT"}], "timeframes": ["15m"], "follow_ups": True})
+CFG = parse_config({"pairs": [{"exchange": "binance", "symbol": "BTC-USDT"}], "timeframes": ["15m"], "follow_ups": True, "max_signal_age_bars": 100})
 
 
 def fake_analyse_factory(buy_at, sell_at=()):
