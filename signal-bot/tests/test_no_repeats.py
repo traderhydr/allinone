@@ -12,7 +12,7 @@ from signal_bot.notifier import NotifyError
 from tests.helpers import flat
 from tests.test_runner_notifier import fake_analyse_factory, series
 
-CFG = parse_config({"pairs": [{"exchange": "binance", "symbol": "BTC-USDT"}], "timeframes": ["15m"]})
+CFG = parse_config({"pairs": [{"exchange": "binance", "symbol": "BTC-USDT"}], "timeframes": ["15m"], "follow_ups": True})
 KEY = "k"
 
 
@@ -69,6 +69,25 @@ class SameDirectionTests(unittest.TestCase):
         from signal_bot.config import ConfigError
         with self.assertRaises(ConfigError):
             parse_config({"pairs": [{"exchange": "binance", "symbol": "X"}], "cooldown_bars": -1})
+
+
+class FollowUpSwitchTests(unittest.TestCase):
+    OFF = parse_config({"pairs": [{"exchange": "binance", "symbol": "BTC-USDT"}]})  # follow_ups defaults to off
+
+    def test_only_the_signal_is_posted_when_follow_ups_are_off(self):
+        state, out = started(), []
+        run(series([(100.5, 99.5), (102.5, 99), (104.5, 100), (106.5, 100)]), state, out.append, buy_at={100}, cfg=self.OFF)
+        self.assertEqual(len(out), 1)
+        self.assertIn("LONG", out[0])
+        self.assertIsNone(state[KEY]["trade"])          # the bot still followed the trade to TP3
+
+    def test_repeat_protection_still_works_when_follow_ups_are_off(self):
+        state, out = started(), []
+        run(series([(100.5, 99.5), (100.5, 99.5), (100.5, 99.5)]), state, out.append, buy_at={100, 102}, cfg=self.OFF)
+        self.assertEqual(len(out), 1)                    # second BUY ignored: the first trade is still open
+        out2 = []
+        run(series([(100.5, 99.5), (101, 96), (100.5, 99.5)]), started(), out2.append, buy_at={100, 102}, cfg=self.OFF)
+        self.assertEqual(len(out2), 2)                   # stopped out in between, so a new BUY is a new trade
 
 
 class LiquidationLogTests(unittest.TestCase):

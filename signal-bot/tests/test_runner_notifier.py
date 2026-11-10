@@ -10,7 +10,7 @@ from signal_bot.indicators import Analysis
 from signal_bot.notifier import NotifyError, TelegramNotifier
 from tests.helpers import TF, flat
 
-CFG = parse_config({"pairs": [{"exchange": "binance", "symbol": "BTC-USDT"}], "timeframes": ["15m"]})
+CFG = parse_config({"pairs": [{"exchange": "binance", "symbol": "BTC-USDT"}], "timeframes": ["15m"], "follow_ups": True})
 
 
 def fake_analyse_factory(buy_at, sell_at=()):
@@ -176,6 +176,13 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual((cfg.pairs[0].exchange, cfg.pairs[0].symbol, cfg.pairs[0].timeframes), ("blofin", "ETH-USDT", ["1h"]))
         self.assertEqual(cfg.strategy.sensitivity, 6.0)
         self.assertEqual(cfg.leverage.label, "15x cross")  # default
+
+    def test_follow_ups_default_off_and_must_be_boolean(self):
+        base = {"pairs": [{"exchange": "binance", "symbol": "BTC-USDT"}]}
+        self.assertFalse(parse_config(base).follow_ups)
+        self.assertTrue(parse_config({**base, "follow_ups": True}).follow_ups)
+        with self.assertRaises(ConfigError):
+            parse_config({**base, "follow_ups": "yes"})
 
     def test_leverage_setting(self):
         base = {"pairs": [{"exchange": "binance", "symbol": "BTC-USDT"}]}

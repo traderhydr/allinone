@@ -5,6 +5,7 @@
   "poll_seconds": 30,
   "history": 500,
   "cooldown_bars": 0,
+  "follow_ups": false,
   "leverage": {
     "x": 15,
     "mode": "cross",

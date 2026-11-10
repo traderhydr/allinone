@@ -27,6 +27,7 @@ class BotConfig:
     timeframes: List[str] = field(default_factory=lambda: ["15m"])
     poll_seconds: int = 30
     history: int = 500
+    follow_ups: bool = False  # also post 'TP hit' / 'Stop hit' messages; off by default (auto-trading bots read the channel)
     cooldown_bars: int = 0  # ignore new signals for this many candles after the previous one on the same series
     strategy: StrategyConfig = field(default_factory=StrategyConfig)
     leverage: Optional[Leverage] = field(default_factory=Leverage)  # 15x cross unless changed; null turns it off
@@ -71,6 +72,9 @@ def parse_config(raw: dict) -> BotConfig:
     except (ValueError, TypeError) as e:
         raise ConfigError(str(e))
 
+    follow_ups = raw.get("follow_ups", False)
+    if not isinstance(follow_ups, bool):
+        raise ConfigError("follow_ups must be true or false")
     cooldown = int(raw.get("cooldown_bars", 0))
     if cooldown < 0:
         raise ConfigError("cooldown_bars cannot be negative")
@@ -82,6 +86,7 @@ def parse_config(raw: dict) -> BotConfig:
         timeframes=[_tf(t) for t in raw.get("timeframes", ["15m"])],
         poll_seconds=max(10, int(raw.get("poll_seconds", 30))),
         history=history,
+        follow_ups=follow_ups,
         cooldown_bars=cooldown,
         strategy=strat,
         leverage=lev,

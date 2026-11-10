@@ -117,9 +117,10 @@ def process_series(
         trade = slot.get("trade")
         if trade:
             events = trades.advance(trade, candle, cfg.strategy)
-            for ev in events:
-                stop = trade["entry"] if (ev == "sl" and cfg.strategy.be_after_tp1 and trade["hit"][0]) else None
-                outbox.append(event_message(symbol, timeframe, venue, trade, ev, stop, cfg.leverage))
+            for ev in events:  # trade state is always tracked (repeat protection needs it); text only if enabled
+                if cfg.follow_ups:
+                    stop = trade["entry"] if (ev == "sl" and cfg.strategy.be_after_tp1 and trade["hit"][0]) else None
+                    outbox.append(event_message(symbol, timeframe, venue, trade, ev, stop, cfg.leverage))
             if trades.is_finished(events):
                 slot["trade"] = None
         if analysis.buy[i] or analysis.sell[i]:

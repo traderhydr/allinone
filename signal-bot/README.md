@@ -17,7 +17,7 @@ Pulls candles from **Binance** (spot or USD-M futures) and **BloFin** (perpetual
   1) 0.16369
   Leverage: Cross (15x)
   ```
-- a follow-up when a target or the stop is hit
+- optionally (`"follow_ups": true`), a follow-up when a target or the stop is hit
 
 Pine Script cannot call exchanges or Telegram, so this runs as a small separate program (Python 3.9+, standard library only, nothing to install).
 
@@ -99,6 +99,16 @@ Restart=always
 [Install]
 WantedBy=multi-user.target
 ```
+
+## Using it with Cornix
+
+The signal layout is the one Cornix reads. Cornix works out long or short from the prices, so the `LONG` / `SHORT` line is for people; the entry, take-profit and stop prices are always on the correct side for the direction.
+
+- **Follow-up messages are off by default** (`"follow_ups": false`). Cornix watches the channel and acts on what it reads. An extra "TP1 hit" post is not a signal, but I could not confirm how Cornix treats it, and a misread could place a real order. Cornix manages its own take-profits and stops from the signal. The bot still tracks every trade internally, so repeat protection works the same either way. Set `"follow_ups": true` only if you want the updates for human readers and have checked how Cornix handles them.
+- **Test with paper trading first.** Run it on a Cornix demo / paper account for a few days before connecting a real exchange account.
+- **Check Cornix's settings** for duplicate signals and for an opposite signal on a pair that already has an open trade. The bot suppresses a same-direction repeat while its own simulated trade is open, but it does not know what Cornix actually has open.
+- **Check the symbols and leverage.** Make sure Cornix supports each pair on your exchange (the `1000...` names in particular) and that the exchange allows the leverage in the message for that symbol.
+- **The prices are the closed-candle price at signal time.** By the time Cornix places the order, the market may have moved; Cornix's entry settings decide what happens then.
 
 ## No repeated messages or trades
 
